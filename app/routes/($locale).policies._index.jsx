@@ -1,4 +1,6 @@
 import {useLoaderData, Link} from 'react-router';
+import {useLocalePath} from '~/lib/i18n';
+import {POLICY_FIELDS, getPolicyField} from '~/lib/policies';
 
 /**
  * @param {Route.LoaderArgs}
@@ -6,14 +8,11 @@ import {useLoaderData, Link} from 'react-router';
 export async function loader({context}) {
   const data = await context.storefront.query(POLICIES_QUERY);
 
-  const shopPolicies = data.shop;
-  const policies = [
-    shopPolicies?.privacyPolicy,
-    shopPolicies?.shippingPolicy,
-    shopPolicies?.termsOfService,
-    shopPolicies?.refundPolicy,
-    shopPolicies?.subscriptionPolicy,
-  ].filter((policy) => policy != null);
+  // Same order and handle mapping as the /policies/:handle route, so every
+  // listed policy resolves there.
+  const policies = POLICY_FIELDS.map((field) => data.shop?.[field]).filter(
+    (policy) => policy?.handle && getPolicyField(policy.handle),
+  );
 
   if (!policies.length) {
     throw new Response('No policies found', {status: 404});
@@ -25,14 +24,17 @@ export async function loader({context}) {
 export default function Policies() {
   /** @type {LoaderReturnData} */
   const {policies} = useLoaderData();
+  const localePath = useLocalePath();
 
   return (
     <div className="policies">
       <h1>Policies</h1>
       <div>
         {policies.map((policy) => (
-          <fieldset key={policy.id}>
-            <Link to={`/policies/${policy.handle}`}>{policy.title}</Link>
+          <fieldset key={policy.handle}>
+            <Link to={localePath(`/policies/${policy.handle}`)}>
+              {policy.title}
+            </Link>
           </fieldset>
         ))}
       </div>
@@ -52,13 +54,22 @@ const POLICIES_QUERY = `#graphql
       privacyPolicy {
         ...PolicyItem
       }
+      refundPolicy {
+        ...PolicyItem
+      }
       shippingPolicy {
         ...PolicyItem
       }
       termsOfService {
         ...PolicyItem
       }
-      refundPolicy {
+      termsOfSale {
+        ...PolicyItem
+      }
+      legalNotice {
+        ...PolicyItem
+      }
+      contactInformation {
         ...PolicyItem
       }
       subscriptionPolicy {

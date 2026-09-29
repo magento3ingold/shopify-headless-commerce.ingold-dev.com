@@ -1,4 +1,4 @@
-import {createContext, useContext, useEffect, useState} from 'react';
+import {createContext, useContext, useEffect, useRef, useState} from 'react';
 import {useId} from 'react';
 
 /**
@@ -20,6 +20,30 @@ export function Aside({children, heading, type}) {
   const {type: activeType, close} = useAside();
   const expanded = type === activeType;
   const id = useId();
+  const asideRef = useRef(null);
+
+  // Move focus into the drawer when it opens and restore it when it closes.
+  // An element marked with `data-autofocus` receives focus first.
+  useEffect(() => {
+    if (!expanded) return;
+    const previouslyFocused = document.activeElement;
+    const frame = requestAnimationFrame(() => {
+      const target =
+        asideRef.current?.querySelector('[data-autofocus]') ??
+        asideRef.current?.querySelector('button.close');
+      target?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (
+        previouslyFocused instanceof HTMLElement &&
+        document.contains(previouslyFocused)
+      ) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [expanded]);
+
   useEffect(() => {
     const abortController = new AbortController();
 
@@ -40,15 +64,29 @@ export function Aside({children, heading, type}) {
   return (
     <div
       aria-modal
-      className={`overlay ${expanded ? 'expanded' : ''}`}
+      className={`overlay z-50 ${expanded ? 'expanded' : ''}`}
       role="dialog"
       aria-labelledby={id}
     >
-      <button className="close-outside" onClick={close} />
-      <aside>
-        <header>
-          <h3 id={id}>{heading}</h3>
-          <button className="close reset" onClick={close} aria-label="Close">
+      <button
+        className="close-outside"
+        onClick={close}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <aside ref={asideRef}>
+        <header className="border-line px-5">
+          <h3
+            id={id}
+            className="text-xs font-semibold tracking-[0.2em] text-ink uppercase"
+          >
+            {heading}
+          </h3>
+          <button
+            className="close reset inline-flex size-9 items-center justify-center rounded-full text-2xl leading-none transition-colors duration-200 hover:bg-surface"
+            onClick={close}
+            aria-label="Close"
+          >
             &times;
           </button>
         </header>

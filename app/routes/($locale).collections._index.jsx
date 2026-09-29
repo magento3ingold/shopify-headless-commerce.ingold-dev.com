@@ -1,6 +1,9 @@
-import {useLoaderData, Link} from 'react-router';
-import {getPaginationVariables, Image} from '@shopify/hydrogen';
+import {useLoaderData} from 'react-router';
+import {getPaginationVariables} from '@shopify/hydrogen';
 import {PaginatedResourceSection} from '~/components/PaginatedResourceSection';
+import {CollectionCard} from '~/components/CollectionCard';
+import {COLLECTION_GRID_CLASSES} from '~/components/CollectionGrid';
+import {COLLECTION_CARD_FRAGMENT} from '~/lib/fragments';
 
 /**
  * @param {Route.LoaderArgs} args
@@ -50,65 +53,32 @@ export default function Collections() {
   const {collections} = useLoaderData();
 
   return (
-    <div className="collections">
-      <h1>Collections</h1>
-      <PaginatedResourceSection
-        connection={collections}
-        resourcesClassName="collections-grid"
-      >
-        {({node: collection, index}) => (
-          <CollectionItem
-            key={collection.id}
-            collection={collection}
-            index={index}
-          />
-        )}
-      </PaginatedResourceSection>
+    <div className="collections page-full-bleed ui-scope">
+      <div className="page-width py-12 md:py-16">
+        <header className="mb-10 max-w-2xl md:mb-12">
+          <h1 className="font-display text-4xl leading-tight font-medium text-ink md:text-5xl">
+            Collections
+          </h1>
+        </header>
+        <PaginatedResourceSection
+          connection={collections}
+          resourcesClassName={COLLECTION_GRID_CLASSES}
+        >
+          {({node: collection, index}) => (
+            <CollectionCard
+              key={collection.id}
+              collection={collection}
+              loading={index < 4 ? 'eager' : 'lazy'}
+            />
+          )}
+        </PaginatedResourceSection>
+      </div>
     </div>
   );
 }
 
-/**
- * @param {{
- *   collection: CollectionFragment;
- *   index: number;
- * }}
- */
-function CollectionItem({collection, index}) {
-  return (
-    <Link
-      className="collection-item"
-      key={collection.id}
-      to={`/collections/${collection.handle}`}
-      prefetch="intent"
-    >
-      {collection?.image && (
-        <Image
-          alt={collection.image.altText || collection.title}
-          aspectRatio="1/1"
-          data={collection.image}
-          loading={index < 3 ? 'eager' : undefined}
-          sizes="(min-width: 45em) 400px, 100vw"
-        />
-      )}
-      <h5>{collection.title}</h5>
-    </Link>
-  );
-}
-
 const COLLECTIONS_QUERY = `#graphql
-  fragment Collection on Collection {
-    id
-    title
-    handle
-    image {
-      id
-      url
-      altText
-      width
-      height
-    }
-  }
+  ${COLLECTION_CARD_FRAGMENT}
   query StoreCollections(
     $country: CountryCode
     $endCursor: String
@@ -124,7 +94,7 @@ const COLLECTIONS_QUERY = `#graphql
       after: $endCursor
     ) {
       nodes {
-        ...Collection
+        ...CollectionCard
       }
       pageInfo {
         hasNextPage
@@ -137,5 +107,5 @@ const COLLECTIONS_QUERY = `#graphql
 `;
 
 /** @typedef {import('./+types/collections._index').Route} Route */
-/** @typedef {import('storefrontapi.generated').CollectionFragment} CollectionFragment */
+/** @typedef {import('storefrontapi.generated').CollectionCardFragment} CollectionCardFragment */
 /** @typedef {ReturnType<typeof useLoaderData<typeof loader>>} LoaderReturnData */

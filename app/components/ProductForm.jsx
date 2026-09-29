@@ -1,14 +1,16 @@
 import {Link, useNavigate} from 'react-router';
 import {AddToCartButton} from './AddToCartButton';
 import {useAside} from './Aside';
+import {WishlistButton} from './WishlistButton';
 
 /**
  * @param {{
  *   productOptions: MappedProductOptions[];
  *   selectedVariant: ProductFragment['selectedOrFirstAvailableVariant'];
+ *   product?: Pick<ProductFragment, 'id' | 'handle' | 'title'>;
  * }}
  */
-export function ProductForm({productOptions, selectedVariant}) {
+export function ProductForm({productOptions, selectedVariant, product}) {
   const navigate = useNavigate();
   const {open} = useAside();
   return (
@@ -93,25 +95,29 @@ export function ProductForm({productOptions, selectedVariant}) {
           </div>
         );
       })}
-      <AddToCartButton
-        disabled={!selectedVariant || !selectedVariant.availableForSale}
-        onClick={() => {
-          open('cart');
-        }}
-        lines={
-          selectedVariant
-            ? [
-                {
-                  merchandiseId: selectedVariant.id,
-                  quantity: 1,
-                  selectedVariant,
-                },
-              ]
-            : []
-        }
-      >
-        {selectedVariant?.availableForSale ? 'Add to cart' : 'Sold out'}
-      </AddToCartButton>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <AddToCartButton
+          className="inline-flex min-h-12 w-full cursor-pointer items-center justify-center rounded-full bg-ink px-8 py-3.5 text-sm font-semibold text-white transition-colors duration-200 hover:bg-ink-soft disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+          disabled={!selectedVariant || !selectedVariant.availableForSale}
+          onClick={() => {
+            open('cart');
+          }}
+          lines={
+            selectedVariant
+              ? [
+                  {
+                    merchandiseId: selectedVariant.id,
+                    quantity: 1,
+                    selectedVariant,
+                  },
+                ]
+              : []
+          }
+        >
+          {selectedVariant?.availableForSale ? 'Add to cart' : 'Sold out'}
+        </AddToCartButton>
+        {product ? <WishlistButton product={product} variant="full" /> : null}
+      </div>
     </div>
   );
 }

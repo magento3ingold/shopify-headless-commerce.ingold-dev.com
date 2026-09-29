@@ -1,8 +1,12 @@
 import {Await, Link} from 'react-router';
 import {Suspense, useId} from 'react';
-import {Aside} from '~/components/Aside';
+import {Aside, useAside} from '~/components/Aside';
+import {WishlistProvider} from '~/lib/wishlist/context';
+import {UserIcon} from '~/components/Icons';
+import {useLocalePath} from '~/lib/i18n';
 import {Footer} from '~/components/Footer';
-import {Header, HeaderMenu} from '~/components/Header';
+import {Header} from '~/components/Header';
+import {MobileNavigation} from '~/components/HeaderNavigation';
 import {CartMain} from '~/components/CartMain';
 import {
   SEARCH_ENDPOINT,
@@ -16,31 +20,39 @@ import {SearchResultsPredictive} from '~/components/SearchResultsPredictive';
 export function PageLayout({
   cart,
   children = null,
-  footer,
   header,
   isLoggedIn,
+  navigation = [],
+  footerNavigation = [],
   publicStoreDomain,
 }) {
   return (
-    <Aside.Provider>
-      <CartAside cart={cart} />
-      <SearchAside />
-      <MobileMenuAside header={header} publicStoreDomain={publicStoreDomain} />
-      {header && (
-        <Header
-          header={header}
-          cart={cart}
-          isLoggedIn={isLoggedIn}
-          publicStoreDomain={publicStoreDomain}
-        />
-      )}
-      <main>{children}</main>
-      <Footer
-        footer={footer}
-        header={header}
-        publicStoreDomain={publicStoreDomain}
-      />
-    </Aside.Provider>
+    <WishlistProvider>
+      <Aside.Provider>
+        <a
+          href="#main-content"
+          className="sr-only z-50 rounded-full bg-ink px-5 py-3 text-sm font-semibold text-white focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        >
+          Skip to content
+        </a>
+        <CartAside cart={cart} />
+        <SearchAside />
+        <MobileMenuAside isLoggedIn={isLoggedIn} navigation={navigation} />
+        {header && (
+          <Header
+            header={header}
+            navigation={navigation}
+            cart={cart}
+            isLoggedIn={isLoggedIn}
+            publicStoreDomain={publicStoreDomain}
+          />
+        )}
+        <main id="main-content" className="flex-1">
+          {children}
+        </main>
+        <Footer header={header} columns={footerNavigation} />
+      </Aside.Provider>
+    </WishlistProvider>
   );
 }
 
@@ -78,6 +90,8 @@ function SearchAside() {
                 ref={inputRef}
                 type="search"
                 list={queriesDatalistId}
+                aria-label="Search products"
+                data-autofocus
               />
               &nbsp;
               <button onClick={goToSearch}>Search</button>
@@ -145,36 +159,50 @@ function SearchAside() {
 
 /**
  * @param {{
- *   header: PageLayoutProps['header'];
- *   publicStoreDomain: PageLayoutProps['publicStoreDomain'];
+ *   isLoggedIn: PageLayoutProps['isLoggedIn'];
+ *   navigation: NavItem[];
  * }}
  */
-function MobileMenuAside({header, publicStoreDomain}) {
+function MobileMenuAside({isLoggedIn, navigation}) {
+  const {close} = useAside();
+  const localePath = useLocalePath();
+
   return (
-    header.menu &&
-    header.shop.primaryDomain?.url && (
-      <Aside type="mobile" heading="MENU">
-        <HeaderMenu
-          menu={header.menu}
-          viewport="mobile"
-          primaryDomainUrl={header.shop.primaryDomain.url}
-          publicStoreDomain={publicStoreDomain}
-        />
-      </Aside>
-    )
+    <Aside type="mobile" heading="Menu">
+      <nav aria-label="Mobile" className="ui-scope">
+        <MobileNavigation items={navigation} />
+        <Link
+          to={localePath('/account')}
+          onClick={close}
+          prefetch="intent"
+          className={`flex items-center gap-3 text-base font-medium text-ink ${
+            navigation.length ? 'mt-6 border-t border-line pt-6' : ''
+          }`}
+        >
+          <UserIcon />
+          <Suspense fallback="Sign in">
+            <Await resolve={isLoggedIn} errorElement="Sign in">
+              {(isLoggedIn) => (isLoggedIn ? 'My account' : 'Sign in')}
+            </Await>
+          </Suspense>
+        </Link>
+      </nav>
+    </Aside>
   );
 }
 
 /**
  * @typedef {Object} PageLayoutProps
  * @property {Promise<CartApiQueryFragment|null>} cart
- * @property {Promise<FooterQuery|null>} footer
  * @property {HeaderQuery} header
+ * @property {NavItem[]} [navigation]
+ * @property {FooterColumn[]} [footerNavigation]
  * @property {Promise<boolean>} isLoggedIn
  * @property {string} publicStoreDomain
  * @property {React.ReactNode} [children]
  */
 
 /** @typedef {import('storefrontapi.generated').CartApiQueryFragment} CartApiQueryFragment */
-/** @typedef {import('storefrontapi.generated').FooterQuery} FooterQuery */
 /** @typedef {import('storefrontapi.generated').HeaderQuery} HeaderQuery */
+/** @typedef {import('~/lib/navigation').NavItem} NavItem */
+/** @typedef {import('~/lib/navigation').FooterColumn} FooterColumn */

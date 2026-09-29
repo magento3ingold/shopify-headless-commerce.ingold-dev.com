@@ -2,7 +2,9 @@ import {redirect, useLoaderData} from 'react-router';
 import {getPaginationVariables, Analytics} from '@shopify/hydrogen';
 import {PaginatedResourceSection} from '~/components/PaginatedResourceSection';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
-import {ProductItem} from '~/components/ProductItem';
+import {ProductCard} from '~/components/ProductCard';
+import {PRODUCT_GRID_CLASSES} from '~/components/ProductGrid';
+import {PRODUCT_CARD_FRAGMENT} from '~/lib/fragments';
 
 /**
  * @type {Route.MetaFunction}
@@ -76,21 +78,31 @@ export default function Collection() {
   const {collection} = useLoaderData();
 
   return (
-    <div className="collection">
-      <h1>{collection.title}</h1>
-      <p className="collection-description">{collection.description}</p>
-      <PaginatedResourceSection
-        connection={collection.products}
-        resourcesClassName="products-grid"
-      >
-        {({node: product, index}) => (
-          <ProductItem
-            key={product.id}
-            product={product}
-            loading={index < 8 ? 'eager' : undefined}
-          />
-        )}
-      </PaginatedResourceSection>
+    <div className="collection page-full-bleed ui-scope">
+      <div className="page-width py-12 md:py-16">
+        <header className="mb-10 max-w-2xl md:mb-12">
+          <h1 className="font-display text-4xl leading-tight font-medium text-ink md:text-5xl">
+            {collection.title}
+          </h1>
+          {collection.description ? (
+            <p className="mt-4 text-base leading-relaxed text-muted">
+              {collection.description}
+            </p>
+          ) : null}
+        </header>
+        <PaginatedResourceSection
+          connection={collection.products}
+          resourcesClassName={PRODUCT_GRID_CLASSES}
+        >
+          {({node: product, index}) => (
+            <ProductCard
+              key={product.id}
+              product={product}
+              loading={index < 4 ? 'eager' : 'lazy'}
+            />
+          )}
+        </PaginatedResourceSection>
+      </div>
       <Analytics.CollectionView
         data={{
           collection: {
@@ -103,36 +115,9 @@ export default function Collection() {
   );
 }
 
-const PRODUCT_ITEM_FRAGMENT = `#graphql
-  fragment MoneyProductItem on MoneyV2 {
-    amount
-    currencyCode
-  }
-  fragment ProductItem on Product {
-    id
-    handle
-    title
-    featuredImage {
-      id
-      altText
-      url
-      width
-      height
-    }
-    priceRange {
-      minVariantPrice {
-        ...MoneyProductItem
-      }
-      maxVariantPrice {
-        ...MoneyProductItem
-      }
-    }
-  }
-`;
-
 // NOTE: https://shopify.dev/docs/api/storefront/2022-04/objects/collection
 const COLLECTION_QUERY = `#graphql
-  ${PRODUCT_ITEM_FRAGMENT}
+  ${PRODUCT_CARD_FRAGMENT}
   query Collection(
     $handle: String!
     $country: CountryCode
@@ -154,7 +139,7 @@ const COLLECTION_QUERY = `#graphql
         after: $endCursor
       ) {
         nodes {
-          ...ProductItem
+          ...ProductCard
         }
         pageInfo {
           hasPreviousPage
@@ -168,5 +153,5 @@ const COLLECTION_QUERY = `#graphql
 `;
 
 /** @typedef {import('./+types/collections.$handle').Route} Route */
-/** @typedef {import('storefrontapi.generated').ProductItemFragment} ProductItemFragment */
+/** @typedef {import('storefrontapi.generated').ProductCardFragment} ProductCardFragment */
 /** @typedef {ReturnType<typeof useLoaderData<typeof loader>>} LoaderReturnData */

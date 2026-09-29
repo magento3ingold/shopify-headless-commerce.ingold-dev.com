@@ -10,9 +10,16 @@ import {
   useRouteLoaderData,
 } from 'react-router';
 import favicon from '~/assets/favicon.svg';
-import {FOOTER_QUERY, HEADER_QUERY} from '~/lib/fragments';
-import resetStyles from '~/styles/reset.css?url';
-import appStyles from '~/styles/app.css?url';
+import {HEADER_QUERY} from '~/lib/fragments';
+import {
+  FOOTER_MENUS,
+  getFooterNavigation,
+  getNavigation,
+} from '~/lib/navigation';
+import {getHostname} from '~/lib/links';
+import {getContactInformation} from '~/lib/contact-information';
+import {getSocialLinks} from '~/lib/social-media';
+// reset.css and app.css are pulled into cascade layers by tailwind.css
 import tailwindCss from './styles/tailwind.css?url';
 import {PageLayout} from './components/PageLayout';
 
@@ -75,6 +82,7 @@ export async function loader(args) {
     ...deferredData,
     ...criticalData,
     publicStoreDomain: env.PUBLIC_STORE_DOMAIN,
+    language: storefront.i18n.language,
     shop: getShopAnalytics({
       storefront,
       publicStorefrontId: env.PUBLIC_STOREFRONT_ID,
@@ -95,20 +103,53 @@ export async function loader(args) {
  * needed to render the page. If it's unavailable, the whole page should 400 or 500 error.
  * @param {Route.LoaderArgs}
  */
-async function loadCriticalData({context}) {
-  const {storefront} = context;
+async function loadCriticalData({context, request}) {
+  const {storefront, env} = context;
 
   const [header] = await Promise.all([
     storefront.query(HEADER_QUERY, {
       cache: storefront.CacheLong(),
       variables: {
         headerMenuHandle: 'main-menu', // Adjust to your header menu handle
+        footerShopMenuHandle: FOOTER_MENUS.shop.handle,
+        footerCompanyMenuHandle: FOOTER_MENUS.company.handle,
+        footerServiceMenuHandle: FOOTER_MENUS.service.handle,
       },
     }),
     // Add other queries here, so that they are loaded in parallel
   ]);
 
-  return {header};
+  // Shopify menu URLs point at the Online Store domains; these hosts are
+  // treated as "this storefront" so their links stay inside Hydrogen. A
+  // missing menu yields an empty navigation instead of an error.
+  const linkOptions = {
+    internalHosts: [
+      new URL(request.url).hostname,
+      env.PUBLIC_STORE_DOMAIN,
+      getHostname(header?.shop?.primaryDomain?.url),
+    ],
+  };
+  const navigation = getNavigation(header?.menu, linkOptions);
+  const footerNavigation = getFooterNavigation(
+    {
+      shop: header?.footerShopMenu,
+      company: header?.footerCompanyMenu,
+      service: header?.footerServiceMenu,
+    },
+    linkOptions,
+  );
+
+  return {
+    header,
+    navigation,
+    footerNavigation,
+    // Global store data, reusable anywhere via useContactInformation() and
+    // useSocialLinks().
+    contactInformation: getContactInformation(
+      header?.contactInformation?.nodes?.[0],
+    ),
+    socialLinks: getSocialLinks(header?.socialMedia?.nodes?.[0]),
+  };
 }
 
 /**
@@ -118,25 +159,12 @@ async function loadCriticalData({context}) {
  * @param {Route.LoaderArgs}
  */
 function loadDeferredData({context}) {
-  const {storefront, customerAccount, cart} = context;
+  const {customerAccount, cart} = context;
 
-  // defer the footer query (below the fold)
-  const footer = storefront
-    .query(FOOTER_QUERY, {
-      cache: storefront.CacheLong(),
-      variables: {
-        footerMenuHandle: 'footer', // Adjust to your footer menu handle
-      },
-    })
-    .catch((error) => {
-      // Log query errors, but don't throw them so the page can still render
-      console.error(error);
-      return null;
-    });
+  // Footer menus are loaded with the header data in loadCriticalData.
   return {
     cart: cart.get(),
     isLoggedIn: customerAccount.isLoggedIn(),
-    footer,
   };
 }
 
@@ -145,15 +173,16 @@ function loadDeferredData({context}) {
  */
 export function Layout({children}) {
   const nonce = useNonce();
+  /** @type {RootLoader | undefined} */
+  const data = useRouteLoaderData('root');
+  const lang = (data?.language ?? 'EN').toLowerCase();
 
   return (
-    <html lang="en">
+    <html lang={lang}>
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <link rel="stylesheet" href={tailwindCss}></link>
-        <link rel="stylesheet" href={resetStyles}></link>
-        <link rel="stylesheet" href={appStyles}></link>
         <Meta />
         <Links />
       </head>
