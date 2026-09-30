@@ -9,7 +9,7 @@ import {ButtonLink} from '~/components/ButtonLink';
 import {PRODUCT_CARD_FRAGMENT} from '~/lib/fragments';
 import {getSiteSettings} from '~/lib/site-settings';
 import {useLocalePath} from '~/lib/i18n';
-import {useWishlist} from '~/lib/wishlist/context';
+import {useWishlist, useWishlistSync} from '~/lib/wishlist/context';
 import {MAX_WISHLIST_ITEMS} from '~/lib/wishlist/storage';
 
 const PRODUCT_GID = /^gid:\/\/shopify\/Product\/\d+$/;
@@ -66,6 +66,7 @@ export async function loader({request, context}) {
 
 export default function WishlistPage() {
   const {items, removeMany, remove, clear} = useWishlist();
+  const sync = useWishlistSync();
   const hydrated = useHydrated();
   const localePath = useLocalePath();
   /** @type {import('react-router').FetcherWithComponents<LoaderData>} */
@@ -135,6 +136,17 @@ export default function WishlistPage() {
             </button>
           ) : null}
         </header>
+
+        {sync.error ? (
+          <p
+            role="status"
+            className="mb-8 rounded-lg border border-sale/30 bg-sale/5 px-4 py-3 text-sm text-ink"
+          >
+            {sync.mode === 'customer'
+              ? 'Some changes could not be saved to your account. Your wishlist shows what is currently saved.'
+              : 'Your wishlist could not be loaded from your account, so this device’s wishlist is shown.'}
+          </p>
+        ) : null}
 
         {isEmpty ? (
           <div className="rounded-card border border-line bg-surface px-6 py-16 text-center">

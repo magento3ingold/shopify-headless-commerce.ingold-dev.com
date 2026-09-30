@@ -27,7 +27,7 @@ export function PageLayout({
   publicStoreDomain,
 }) {
   return (
-    <WishlistProvider>
+    <WishlistProvider isLoggedIn={isLoggedIn}>
       <Aside.Provider>
         <a
           href="#main-content"

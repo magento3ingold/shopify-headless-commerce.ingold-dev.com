@@ -17,6 +17,9 @@
 /** The single localStorage key for the guest wishlist. */
 export const WISHLIST_STORAGE_KEY = 'hydrogen_wishlist';
 
+/** Guest wishlists expire when not updated for this long. */
+export const GUEST_WISHLIST_TTL_MS = 15 * 24 * 60 * 60 * 1000;
+
 /** Upper bound that keeps storage small and the batch query fast. */
 export const MAX_WISHLIST_ITEMS = 100;
 
@@ -70,7 +73,19 @@ export function createLocalStorageAdapter(key = WISHLIST_STORAGE_KEY) {
       const raw = storage()?.getItem(key);
       if (!raw) return [];
       try {
-        return sanitizeWishlist(JSON.parse(raw));
+        const parsed = JSON.parse(raw);
+        // Legacy format: a bare array (saved before expiry was added).
+        if (Array.isArray(parsed)) return sanitizeWishlist(parsed);
+        const updatedAt = Number(parsed?.updatedAt);
+        if (
+          !Number.isFinite(updatedAt) ||
+          Date.now() - updatedAt > GUEST_WISHLIST_TTL_MS
+        ) {
+          // Expired (15 days without changes) or unreadable: start fresh.
+          storage()?.removeItem(key);
+          return [];
+        }
+        return sanitizeWishlist(parsed.items);
       } catch {
         // Corrupt JSON: reset instead of failing on every page.
         storage()?.removeItem(key);
@@ -83,7 +98,10 @@ export function createLocalStorageAdapter(key = WISHLIST_STORAGE_KEY) {
         const store = storage();
         if (!store) return;
         if (items.length) {
-          store.setItem(key, JSON.stringify(items));
+          store.setItem(
+            key,
+            JSON.stringify({version: 1, updatedAt: Date.now(), items}),
+          );
         } else {
           store.removeItem(key);
         }

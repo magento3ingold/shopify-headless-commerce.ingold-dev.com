@@ -503,6 +503,46 @@ export type CustomerUpdateMutation = {
   }>;
 };
 
+export type CustomerWishlistQueryVariables = CustomerAccountAPI.Exact<{
+  [key: string]: never;
+}>;
+
+export type CustomerWishlistQuery = {
+  customer: Pick<CustomerAccountAPI.Customer, 'id'> & {
+    wishlist?: CustomerAccountAPI.Maybe<
+      Pick<
+        CustomerAccountAPI.Metafield,
+        'id' | 'type' | 'value' | 'jsonValue' | 'compareDigest'
+      >
+    >;
+  };
+};
+
+export type CustomerWishlistSetMutationVariables = CustomerAccountAPI.Exact<{
+  metafields:
+    | Array<CustomerAccountAPI.MetafieldsSetInput>
+    | CustomerAccountAPI.MetafieldsSetInput;
+}>;
+
+export type CustomerWishlistSetMutation = {
+  metafieldsSet?: CustomerAccountAPI.Maybe<{
+    metafields?: CustomerAccountAPI.Maybe<
+      Array<
+        Pick<
+          CustomerAccountAPI.Metafield,
+          'id' | 'namespace' | 'key' | 'type' | 'value' | 'compareDigest'
+        >
+      >
+    >;
+    userErrors: Array<
+      Pick<
+        CustomerAccountAPI.MetafieldsSetUserError,
+        'field' | 'message' | 'code' | 'elementIndex'
+      >
+    >;
+  }>;
+};
+
 interface GeneratedQueryTypes {
   '#graphql\n  query CustomerDetails($language: LanguageCode) @inContext(language: $language) {\n    customer {\n      ...Customer\n    }\n  }\n  #graphql\n  fragment Customer on Customer {\n    id\n    firstName\n    lastName\n    defaultAddress {\n      ...Address\n    }\n    addresses(first: 6) {\n      nodes {\n        ...Address\n      }\n    }\n  }\n  fragment Address on CustomerAddress {\n    id\n    formatted\n    firstName\n    lastName\n    company\n    address1\n    address2\n    territoryCode\n    zoneCode\n    city\n    zip\n    phoneNumber\n  }\n\n': {
     return: CustomerDetailsQuery;
@@ -515,6 +555,10 @@ interface GeneratedQueryTypes {
   '#graphql\n  #graphql\n  fragment CustomerOrders on Customer {\n    orders(\n      sortKey: PROCESSED_AT,\n      reverse: true,\n      first: $first,\n      last: $last,\n      before: $startCursor,\n      after: $endCursor,\n      query: $query\n    ) {\n      nodes {\n        ...OrderItem\n      }\n      pageInfo {\n        hasPreviousPage\n        hasNextPage\n        endCursor\n        startCursor\n      }\n    }\n  }\n  #graphql\n  fragment OrderItem on Order {\n    totalPrice {\n      amount\n      currencyCode\n    }\n    financialStatus\n    fulfillmentStatus\n    fulfillments(first: 1) {\n      nodes {\n        status\n      }\n    }\n    id\n    number\n    confirmationNumber\n    processedAt\n  }\n\n\n  query CustomerOrders(\n    $endCursor: String\n    $first: Int\n    $last: Int\n    $startCursor: String\n    $query: String\n    $language: LanguageCode\n  ) @inContext(language: $language) {\n    customer {\n      ...CustomerOrders\n    }\n  }\n': {
     return: CustomerOrdersQuery;
     variables: CustomerOrdersQueryVariables;
+  };
+  '#graphql\n  query CustomerWishlist {\n    customer {\n      id\n      wishlist: metafield(namespace: "custom", key: "wishlist") {\n        id\n        type\n        value\n        jsonValue\n        compareDigest\n      }\n    }\n  }\n': {
+    return: CustomerWishlistQuery;
+    variables: CustomerWishlistQueryVariables;
   };
 }
 
@@ -534,6 +578,10 @@ interface GeneratedMutationTypes {
   '#graphql\n  mutation customerUpdate(\n    $customer: CustomerUpdateInput!\n    $language: LanguageCode\n  ) @inContext(language: $language) {\n    customerUpdate(input: $customer) {\n      customer {\n        firstName\n        lastName\n        emailAddress {\n          emailAddress\n        }\n        phoneNumber {\n          phoneNumber\n        }\n      }\n      userErrors {\n        code\n        field\n        message\n      }\n    }\n  }\n': {
     return: CustomerUpdateMutation;
     variables: CustomerUpdateMutationVariables;
+  };
+  '#graphql\n  mutation CustomerWishlistSet($metafields: [MetafieldsSetInput!]!) {\n    metafieldsSet(metafields: $metafields) {\n      metafields {\n        id\n        namespace\n        key\n        type\n        value\n        compareDigest\n      }\n      userErrors {\n        field\n        message\n        code\n        elementIndex\n      }\n    }\n  }\n': {
+    return: CustomerWishlistSetMutation;
+    variables: CustomerWishlistSetMutationVariables;
   };
 }
 
