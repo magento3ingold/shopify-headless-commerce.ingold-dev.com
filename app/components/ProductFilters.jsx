@@ -205,7 +205,6 @@ function FilterForm({filters, priceBounds, currency, locale, state, idPrefix}) {
     >
       {sort ? <input type="hidden" name={SORT_PARAM} value={sort} /> : null}
       <div className="divide-y divide-line border-y border-line">
-        <SaleToggle state={state} />
         {filters.map((filter, index) => (
           <FilterGroup
             key={filter.id}
@@ -219,6 +218,7 @@ function FilterForm({filters, priceBounds, currency, locale, state, idPrefix}) {
             defaultOpen={index < INITIALLY_OPEN_GROUPS}
           />
         ))}
+        <SaleToggle state={state} />
       </div>
       <noscript>
         <button
@@ -439,9 +439,11 @@ function swatchStyle(value) {
 function SaleToggle({state}) {
   const checked = isSaleSelected(state.searchParams);
   return (
-    <fieldset className="m-0 block border-0 px-0 py-4">
-      <legend className="sr-only">Offers</legend>
-      <label className="flex cursor-pointer items-center gap-3 text-sm font-semibold text-ink">
+    <fieldset className="m-0 block border-0 p-0">
+      <legend className="float-left m-0 w-full p-0 py-4 text-sm font-semibold tracking-wide text-ink uppercase">
+        Sale
+      </legend>
+      <label className="clear-both flex cursor-pointer items-center gap-3 pb-5 text-sm text-ink">
         <input
           type="checkbox"
           name={SALE_PARAM}
