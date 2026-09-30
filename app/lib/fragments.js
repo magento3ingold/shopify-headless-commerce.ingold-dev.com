@@ -421,3 +421,17 @@ export const PRODUCT_FILTER_FRAGMENT = `#graphql
     }
   }
 `;
+
+/**
+ * Price data used to decide "on sale" (see ~/lib/sale.server), spread
+ * next to `...ProductCard`.
+ */
+export const PRODUCT_SALE_FRAGMENT = `#graphql
+  fragment ProductSaleFields on Product {
+    compareAtPriceRange {
+      maxVariantPrice {
+        amount
+      }
+    }
+  }
+`;

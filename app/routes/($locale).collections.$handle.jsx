@@ -8,14 +8,23 @@ import {
   FILTERED_PRODUCT_GRID_CLASSES,
   FilteredEmptyState,
   ProductFilters,
+  SaleLimitNotice,
 } from '~/components/ProductFilters';
-import {PRODUCT_CARD_FRAGMENT, PRODUCT_FILTER_FRAGMENT} from '~/lib/fragments';
 import {
+  PRODUCT_CARD_FRAGMENT,
+  PRODUCT_FILTER_FRAGMENT,
+  PRODUCT_SALE_FRAGMENT,
+} from '~/lib/fragments';
+import {
+  getPriceBounds,
+  getPriceRange,
   getProductFilters,
   getSortOption,
   hasActiveFilters,
   isRefinedListing,
+  isSaleSelected,
 } from '~/lib/product-filters';
+import {SALE_SCAN_LIMIT, selectOnSaleProducts} from '~/lib/sale.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -58,6 +67,10 @@ async function loadCriticalData({context, params, request}) {
   const {searchParams} = new URL(request.url);
   const filters = getProductFilters(searchParams);
   const {sortKey, reverse} = getSortOption(searchParams, 'collection');
+  const hasPrice = getPriceRange(searchParams) !== null;
+  // "On sale" is decided on the server from one bounded page of Shopify's
+  // (filtered, sorted) results; see ~/lib/sale.server.
+  const sale = isSaleSelected(searchParams);
 
   if (!handle) {
     throw redirect('/collections');
@@ -65,7 +78,26 @@ async function loadCriticalData({context, params, request}) {
 
   const [{collection, localization}] = await Promise.all([
     storefront.query(COLLECTION_QUERY, {
-      variables: {handle, filters, sortKey, reverse, ...paginationVariables},
+      variables: {
+        handle,
+        filters,
+        sortKey,
+        reverse,
+        hasPrice,
+        // Shopify reports the applied price range as the available range, so
+        // the slider bounds are read without the price filter.
+        filtersWithoutPrice: getProductFilters(searchParams, {
+          includePrice: false,
+        }),
+        ...(sale
+          ? {
+              first: SALE_SCAN_LIMIT,
+              last: null,
+              startCursor: null,
+              endCursor: null,
+            }
+          : paginationVariables),
+      },
       // Add other queries here, so that they are loaded in parallel
     }),
   ]);
@@ -79,9 +111,33 @@ async function loadCriticalData({context, params, request}) {
   // The API handle might be localized, so redirect to the localized handle
   redirectIfHandleIsLocalized(request, {handle, data: collection});
 
+  const {products} = collection;
+  const saleProducts = sale
+    ? await selectOnSaleProducts(storefront, products.nodes)
+    : null;
+
   const {language, country} = storefront.i18n;
   return {
-    collection,
+    collection: {
+      ...collection,
+      products: saleProducts
+        ? {
+            ...products,
+            nodes: saleProducts,
+            pageInfo: {
+              hasPreviousPage: false,
+              hasNextPage: false,
+              startCursor: null,
+              endCursor: null,
+            },
+          }
+        : products,
+    },
+    priceBounds: getPriceBounds(
+      hasPrice ? collection.priceFacets.filters : products.filters,
+    ),
+    // More matching products exist than the sale check examined.
+    isSaleLimited: sale && products.pageInfo.hasNextPage,
     currency: localization.country.currency,
     locale: `${language.toLowerCase()}-${country}`,
   };
@@ -99,8 +155,11 @@ function loadDeferredData({context}) {
 
 export default function Collection() {
   /** @type {LoaderReturnData} */
-  const {collection, currency, locale} = useLoaderData();
+  const {collection, priceBounds, isSaleLimited, currency, locale} =
+    useLoaderData();
   const {search} = useLocation();
+  const searchParams = new URLSearchParams(search);
+  const sale = isSaleSelected(searchParams);
   const {filters, nodes} = collection.products;
 
   return (
@@ -119,6 +178,7 @@ export default function Collection() {
         <ProductFilters
           filters={filters}
           listing="collection"
+          priceBounds={priceBounds}
           currency={currency}
           locale={locale}
         >
@@ -136,12 +196,15 @@ export default function Collection() {
                   key={product.id}
                   product={product}
                   loading={index < 4 ? 'eager' : 'lazy'}
+                  onSale={sale || undefined}
                 />
               )}
             </PaginatedResourceSection>
-          ) : (
+          ) : null}
+          {isSaleLimited ? <SaleLimitNotice /> : null}
+          {nodes.length ? null : (
             <FilteredEmptyState
-              hasFilters={hasActiveFilters(new URLSearchParams(search))}
+              hasFilters={hasActiveFilters(searchParams)}
               emptyMessage="This collection has no products yet."
             />
           )}
@@ -163,6 +226,7 @@ export default function Collection() {
 const COLLECTION_QUERY = `#graphql
   ${PRODUCT_CARD_FRAGMENT}
   ${PRODUCT_FILTER_FRAGMENT}
+  ${PRODUCT_SALE_FRAGMENT}
   query Collection(
     $handle: String!
     $country: CountryCode
@@ -174,6 +238,8 @@ const COLLECTION_QUERY = `#graphql
     $filters: [ProductFilter!]
     $sortKey: ProductCollectionSortKeys
     $reverse: Boolean
+    $hasPrice: Boolean!
+    $filtersWithoutPrice: [ProductFilter!]
   ) @inContext(country: $country, language: $language) {
     localization {
       country {
@@ -188,6 +254,15 @@ const COLLECTION_QUERY = `#graphql
       handle
       title
       description
+      priceFacets: products(first: 1, filters: $filtersWithoutPrice)
+        @include(if: $hasPrice) {
+        filters {
+          type
+          values {
+            input
+          }
+        }
+      }
       products(
         first: $first,
         last: $last,
@@ -202,6 +277,7 @@ const COLLECTION_QUERY = `#graphql
         }
         nodes {
           ...ProductCard
+          ...ProductSaleFields
         }
         pageInfo {
           hasPreviousPage

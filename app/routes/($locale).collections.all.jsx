@@ -7,14 +7,23 @@ import {
   FILTERED_PRODUCT_GRID_CLASSES,
   FilteredEmptyState,
   ProductFilters,
+  SaleLimitNotice,
 } from '~/components/ProductFilters';
-import {PRODUCT_CARD_FRAGMENT, PRODUCT_FILTER_FRAGMENT} from '~/lib/fragments';
 import {
+  PRODUCT_CARD_FRAGMENT,
+  PRODUCT_FILTER_FRAGMENT,
+  PRODUCT_SALE_FRAGMENT,
+} from '~/lib/fragments';
+import {
+  getPriceBounds,
+  getPriceRange,
   getProductFilters,
   getSortOption,
   hasActiveFilters,
   isRefinedListing,
+  isSaleSelected,
 } from '~/lib/product-filters';
+import {SALE_SCAN_LIMIT, selectOnSaleProducts} from '~/lib/sale.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -54,6 +63,9 @@ export async function loader(args) {
  * pagination. Cursor pagination of an empty-query search is not reliable
  * (Shopify can return short pages, a wrong `hasNextPage` and repeated
  * products), so filtered results are loaded in one bounded request.
+ *
+ * "On sale" is decided on the server from one bounded page of results
+ * (see ~/lib/sale.server); Shopify has no sale filter or sort key.
  * @param {Route.LoaderArgs}
  */
 async function loadCriticalData({context, request}) {
@@ -68,27 +80,48 @@ async function loadCriticalData({context, request}) {
     'search',
   );
   const filtered = filters.length > 0;
+  const hasPrice = getPriceRange(searchParams) !== null;
+  const sale = isSaleSelected(searchParams);
 
-  const [{catalog, filteredCatalog, facets, localization}] = await Promise.all([
-    storefront.query(CATALOG_QUERY, {
-      variables: {
-        filtered,
-        filters,
-        sortKey,
-        productsSortKey,
-        reverse,
-        filteredLimit: FILTERED_RESULTS_LIMIT,
-        ...paginationVariables,
-      },
-    }),
-    // Add other queries here, so that they are loaded in parallel
-  ]);
+  const [{catalog, filteredCatalog, facets, priceFacets, localization}] =
+    await Promise.all([
+      storefront.query(CATALOG_QUERY, {
+        variables: {
+          filtered,
+          filters,
+          sortKey,
+          productsSortKey,
+          reverse,
+          filteredLimit: FILTERED_RESULTS_LIMIT,
+          hasPrice,
+          // Shopify reports the applied price range as the available range,
+          // so the slider bounds are read without the price filter.
+          filtersWithoutPrice: getProductFilters(searchParams, {
+            includePrice: false,
+          }),
+          ...(sale
+            ? {
+                first: SALE_SCAN_LIMIT,
+                last: null,
+                startCursor: null,
+                endCursor: null,
+              }
+            : paginationVariables),
+        },
+      }),
+      // Add other queries here, so that they are loaded in parallel
+    ]);
+
+  const source = filtered ? filteredCatalog : catalog;
+  const nodes = uniqueById(source.nodes);
+  const bounded = filtered || sale;
+  const shopifyFilters = (filtered ? filteredCatalog : facets).productFilters;
 
   const {language, country} = storefront.i18n;
   return {
-    products: filtered
+    products: bounded
       ? {
-          nodes: uniqueById(filteredCatalog.nodes),
+          nodes: sale ? await selectOnSaleProducts(storefront, nodes) : nodes,
           pageInfo: {
             hasPreviousPage: false,
             hasNextPage: false,
@@ -98,15 +131,24 @@ async function loadCriticalData({context, request}) {
         }
       : catalog,
     isLimited:
-      filtered && filteredCatalog.nodes.length >= FILTERED_RESULTS_LIMIT,
-    filters: (filtered ? filteredCatalog : facets).productFilters,
+      filtered && !sale && source.nodes.length >= FILTERED_RESULTS_LIMIT,
+    // More matching products exist than the sale check examined.
+    isSaleLimited:
+      sale &&
+      (filtered
+        ? source.nodes.length >= FILTERED_RESULTS_LIMIT
+        : source.pageInfo.hasNextPage),
+    filters: shopifyFilters,
+    priceBounds: getPriceBounds(
+      hasPrice ? priceFacets.productFilters : shopifyFilters,
+    ),
     currency: localization.country.currency,
     locale: `${language.toLowerCase()}-${country}`,
   };
 }
 
 /** Upper bound of filtered results loaded at once. */
-const FILTERED_RESULTS_LIMIT = 100;
+const FILTERED_RESULTS_LIMIT = SALE_SCAN_LIMIT;
 
 /**
  * @template {{id?: string}} T
@@ -134,8 +176,18 @@ function loadDeferredData({context}) {
 
 export default function Collection() {
   /** @type {LoaderReturnData} */
-  const {products, isLimited, filters, currency, locale} = useLoaderData();
+  const {
+    products,
+    isLimited,
+    isSaleLimited,
+    filters,
+    priceBounds,
+    currency,
+    locale,
+  } = useLoaderData();
   const {search} = useLocation();
+  const searchParams = new URLSearchParams(search);
+  const sale = isSaleSelected(searchParams);
 
   return (
     <div className="collection page-full-bleed ui-scope">
@@ -148,6 +200,7 @@ export default function Collection() {
         <ProductFilters
           filters={filters}
           listing="search"
+          priceBounds={priceBounds}
           currency={currency}
           locale={locale}
         >
@@ -166,6 +219,7 @@ export default function Collection() {
                     key={product.id}
                     product={product}
                     loading={index < 4 ? 'eager' : 'lazy'}
+                    onSale={sale || undefined}
                   />
                 ) : null
               }
@@ -177,10 +231,9 @@ export default function Collection() {
               more filters to narrow the results.
             </p>
           ) : null}
+          {isSaleLimited ? <SaleLimitNotice /> : null}
           {products.nodes.length ? null : (
-            <FilteredEmptyState
-              hasFilters={hasActiveFilters(new URLSearchParams(search))}
-            />
+            <FilteredEmptyState hasFilters={hasActiveFilters(searchParams)} />
           )}
         </ProductFilters>
       </div>
@@ -204,6 +257,8 @@ const CATALOG_QUERY = `#graphql
     $productsSortKey: ProductSortKeys
     $reverse: Boolean
     $filteredLimit: Int!
+    $hasPrice: Boolean!
+    $filtersWithoutPrice: [ProductFilter!]
   ) @inContext(country: $country, language: $language) {
     localization {
       country {
@@ -224,6 +279,7 @@ const CATALOG_QUERY = `#graphql
       nodes {
         __typename
         ...ProductCard
+        ...ProductSaleFields
       }
       pageInfo {
         hasPreviousPage
@@ -236,6 +292,19 @@ const CATALOG_QUERY = `#graphql
       @skip(if: $filtered) {
       productFilters {
         ...ProductFilter
+      }
+    }
+    priceFacets: search(
+      query: ""
+      types: [PRODUCT]
+      productFilters: $filtersWithoutPrice
+      first: 1
+    ) @include(if: $hasPrice) {
+      productFilters {
+        type
+        values {
+          input
+        }
       }
     }
     filteredCatalog: search(
@@ -252,6 +321,7 @@ const CATALOG_QUERY = `#graphql
       nodes {
         __typename
         ...ProductCard
+        ...ProductSaleFields
       }
       pageInfo {
         hasPreviousPage
@@ -263,6 +333,7 @@ const CATALOG_QUERY = `#graphql
   }
   ${PRODUCT_CARD_FRAGMENT}
   ${PRODUCT_FILTER_FRAGMENT}
+  ${PRODUCT_SALE_FRAGMENT}
 `;
 
 /** @typedef {import('./+types/collections.all').Route} Route */

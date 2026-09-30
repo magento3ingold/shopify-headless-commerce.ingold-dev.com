@@ -11,6 +11,8 @@
  *                                 is exactly the JSON string Shopify returns
  *                                 as `FilterValue.input`, i.e. a ProductFilter.
  *   ?minPrice=10&maxPrice=50      price range (PriceRangeFilter)
+ *   ?sale=1                       only discounted products (see
+ *                                 sale.server.js; not a Shopify filter)
  *   ?sort=price-ascending         see SORT_OPTIONS
  *   ?cursor=…&direction=…         Hydrogen pagination (reset on change)
  *
@@ -22,6 +24,7 @@ export const FILTER_PARAM = 'filter';
 export const MIN_PRICE_PARAM = 'minPrice';
 export const MAX_PRICE_PARAM = 'maxPrice';
 export const SORT_PARAM = 'sort';
+export const SALE_PARAM = 'sale';
 
 /** Hydrogen Pagination's params; dropped whenever filters/sort change. */
 const PAGINATION_PARAMS = ['cursor', 'direction'];
@@ -103,17 +106,34 @@ export const SORT_OPTIONS = /** @type {const} */ ({
       productsSortKey: 'PRICE',
       reverse: true,
     },
+    {
+      value: 'newest',
+      label: 'Newest',
+      sortKey: null,
+      productsSortKey: 'CREATED_AT',
+      reverse: true,
+      unfilteredOnly: true,
+    },
   ],
 });
 
+/** Short spellings accepted in URLs. */
+const SORT_ALIASES = {
+  'price-asc': 'price-ascending',
+  'price-desc': 'price-descending',
+  'title-asc': 'title-ascending',
+  'title-desc': 'title-descending',
+};
+
 /**
- * Sort options available for the current filters.
+ * Sort options available for the current Shopify filters (the sale toggle
+ * does not restrict sorting).
  * @param {URLSearchParams} searchParams
  * @param {keyof typeof SORT_OPTIONS} listing
  */
 export function getSortOptions(searchParams, listing) {
   const options = SORT_OPTIONS[listing];
-  return hasActiveFilters(searchParams)
+  return getProductFilters(searchParams).length > 0
     ? options.filter((option) => !('unfilteredOnly' in option))
     : options;
 }
@@ -126,23 +146,54 @@ export function getSortOptions(searchParams, listing) {
  */
 export function getSortOption(searchParams, listing) {
   const options = getSortOptions(searchParams, listing);
-  const requested = searchParams.get(SORT_PARAM);
+  const raw = searchParams.get(SORT_PARAM) ?? '';
+  const requested = SORT_ALIASES[raw] ?? raw;
   return options.find((option) => option.value === requested) ?? options[0];
 }
 
 /**
  * Every ProductFilter to send to Shopify: selected filter values plus the
- * price range.
+ * price range (unless `includePrice` is false, e.g. to ask Shopify for the
+ * full available price range while a price filter is applied).
  * @param {URLSearchParams} searchParams
+ * @param {{includePrice?: boolean}} [options]
  * @return {ProductFilter[]}
  */
-export function getProductFilters(searchParams) {
+export function getProductFilters(searchParams, {includePrice = true} = {}) {
   const filters = getSelectedFilterInputs(searchParams).map(
     (entry) => entry.filter,
   );
-  const price = getPriceRange(searchParams);
+  const price = includePrice ? getPriceRange(searchParams) : null;
   if (price) filters.push({price});
   return filters;
+}
+
+/** @param {URLSearchParams} searchParams */
+export function isSaleSelected(searchParams) {
+  return searchParams.get(SALE_PARAM) === '1';
+}
+
+/**
+ * The available price range reported by Shopify's PRICE_RANGE filter,
+ * widened to whole currency units. Null when Shopify reports none.
+ * @param {Array<{type: string; values: Array<{input: unknown}>}>} filters
+ * @return {{min: number; max: number} | null}
+ */
+export function getPriceBounds(filters) {
+  const filter = filters?.find((entry) => entry.type === 'PRICE_RANGE');
+  const range = parseFilterInput(filter?.values?.[0]?.input)?.price;
+  if (!range || range.max === undefined) return null;
+  const min = Math.floor(range.min ?? 0);
+  const max = Math.ceil(range.max);
+  return max > min ? {min, max} : null;
+}
+
+/**
+ * @param {number} value
+ * @param {{min: number; max: number}} bounds
+ */
+export function clampPrice(value, bounds) {
+  return Math.min(bounds.max, Math.max(bounds.min, value));
 }
 
 /**
@@ -350,13 +401,22 @@ export function clearPriceRange(searchParams) {
   return next;
 }
 
+/** @param {URLSearchParams} searchParams */
+export function toggleSale(searchParams) {
+  const next = withoutPagination(searchParams);
+  if (isSaleSelected(next)) next.delete(SALE_PARAM);
+  else next.set(SALE_PARAM, '1');
+  return next;
+}
+
 /**
- * Removes every filter (and the price range) but keeps the sort.
+ * Removes every filter (price range and sale included) but keeps the sort.
  * @param {URLSearchParams} searchParams
  */
 export function clearFilters(searchParams) {
   const next = clearPriceRange(searchParams);
   next.delete(FILTER_PARAM);
+  next.delete(SALE_PARAM);
   return next;
 }
 
@@ -373,13 +433,14 @@ export function setSort(searchParams, sort, listing) {
 }
 
 /**
- * True when filters or a price range are active.
+ * True when filters, a price range or the sale toggle are active.
  * @param {URLSearchParams} searchParams
  */
 export function hasActiveFilters(searchParams) {
   return (
     getSelectedFilterInputs(searchParams).length > 0 ||
-    getPriceRange(searchParams) !== null
+    getPriceRange(searchParams) !== null ||
+    isSaleSelected(searchParams)
   );
 }
 
@@ -393,6 +454,7 @@ export function isRefinedListing(searchParams) {
     searchParams.has(FILTER_PARAM) ||
     searchParams.has(MIN_PRICE_PARAM) ||
     searchParams.has(MAX_PRICE_PARAM) ||
+    searchParams.has(SALE_PARAM) ||
     searchParams.has(SORT_PARAM)
   );
 }

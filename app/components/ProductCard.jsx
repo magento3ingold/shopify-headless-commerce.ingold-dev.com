@@ -16,12 +16,18 @@ const ACTION_CLASSES =
  * Add to cart is offered only when it is unambiguous: the product has a
  * single variant, is available and does not require a selling plan.
  * Otherwise the shopper is sent to the product page to choose options.
+ *
+ * The sale price and struck-through compare-at price are shown when the
+ * displayed variant has `compareAtPrice > price`. `onSale` marks a product
+ * the server verified as discounted on another variant (the "On sale"
+ * filter), which shows the Sale badge only.
  * @param {{
  *   product: ProductCardFragment;
  *   loading?: 'eager' | 'lazy';
+ *   onSale?: boolean;
  * }}
  */
-export function ProductCard({product, loading = 'lazy'}) {
+export function ProductCard({product, loading = 'lazy', onSale = false}) {
   const url = useVariantUrl(product.handle);
   const {open} = useAside();
 
@@ -37,6 +43,7 @@ export function ProductCard({product, loading = 'lazy'}) {
     !!compareAtPrice &&
     Number(compareAtPrice.amount) > Number(price.amount) &&
     price.amount === minPrice.amount;
+  const showSaleBadge = isOnSale || onSale;
   const isAvailable = product.availableForSale;
   const canQuickAdd =
     isAvailable &&
@@ -76,7 +83,7 @@ export function ProductCard({product, loading = 'lazy'}) {
               <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold tracking-wide text-ink uppercase shadow-sm">
                 Sold out
               </span>
-            ) : isOnSale ? (
+            ) : showSaleBadge ? (
               <span className="rounded-full bg-sale px-2.5 py-1 text-[11px] font-semibold tracking-wide text-white uppercase">
                 Sale
               </span>
