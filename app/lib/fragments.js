@@ -388,3 +388,36 @@ export const COLLECTION_CARD_FRAGMENT = `#graphql
     }
   }
 `;
+
+/**
+ * Shopify filter definitions (Search & Discovery) with their values, counts
+ * and optional swatches, for collection and search product listings.
+ */
+export const PRODUCT_FILTER_FRAGMENT = `#graphql
+  fragment ProductFilterImage on MediaImage {
+    image {
+      url(transform: {maxWidth: 64, maxHeight: 64})
+    }
+  }
+  fragment ProductFilter on Filter {
+    id
+    label
+    type
+    presentation
+    values {
+      id
+      label
+      count
+      input
+      swatch {
+        color
+        image {
+          ...ProductFilterImage
+        }
+      }
+      image {
+        ...ProductFilterImage
+      }
+    }
+  }
+`;

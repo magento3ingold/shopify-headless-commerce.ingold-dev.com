@@ -1,16 +1,33 @@
-import {redirect, useLoaderData} from 'react-router';
+import {redirect, useLoaderData, useLocation} from 'react-router';
 import {getPaginationVariables, Analytics} from '@shopify/hydrogen';
 import {PaginatedResourceSection} from '~/components/PaginatedResourceSection';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 import {ProductCard} from '~/components/ProductCard';
 import {PRODUCT_GRID_CLASSES} from '~/components/ProductGrid';
-import {PRODUCT_CARD_FRAGMENT} from '~/lib/fragments';
+import {
+  FILTERED_PRODUCT_GRID_CLASSES,
+  FilteredEmptyState,
+  ProductFilters,
+} from '~/components/ProductFilters';
+import {PRODUCT_CARD_FRAGMENT, PRODUCT_FILTER_FRAGMENT} from '~/lib/fragments';
+import {
+  getProductFilters,
+  getSortOption,
+  hasActiveFilters,
+  isRefinedListing,
+} from '~/lib/product-filters';
 
 /**
  * @type {Route.MetaFunction}
  */
-export const meta = ({data}) => {
-  return [{title: `Hydrogen | ${data?.collection.title ?? ''} Collection`}];
+export const meta = ({data, location}) => {
+  return [
+    {title: `Hydrogen | ${data?.collection.title ?? ''} Collection`},
+    // Filtered/sorted variants of the listing are not separate pages.
+    ...(isRefinedListing(new URLSearchParams(location.search))
+      ? [{name: 'robots', content: 'noindex, follow'}]
+      : []),
+  ];
 };
 
 /**
@@ -37,14 +54,18 @@ async function loadCriticalData({context, params, request}) {
   const paginationVariables = getPaginationVariables(request, {
     pageBy: 8,
   });
+  // Filtering and sorting happen in Shopify, driven by the URL.
+  const {searchParams} = new URL(request.url);
+  const filters = getProductFilters(searchParams);
+  const {sortKey, reverse} = getSortOption(searchParams, 'collection');
 
   if (!handle) {
     throw redirect('/collections');
   }
 
-  const [{collection}] = await Promise.all([
+  const [{collection, localization}] = await Promise.all([
     storefront.query(COLLECTION_QUERY, {
-      variables: {handle, ...paginationVariables},
+      variables: {handle, filters, sortKey, reverse, ...paginationVariables},
       // Add other queries here, so that they are loaded in parallel
     }),
   ]);
@@ -58,8 +79,11 @@ async function loadCriticalData({context, params, request}) {
   // The API handle might be localized, so redirect to the localized handle
   redirectIfHandleIsLocalized(request, {handle, data: collection});
 
+  const {language, country} = storefront.i18n;
   return {
     collection,
+    currency: localization.country.currency,
+    locale: `${language.toLowerCase()}-${country}`,
   };
 }
 
@@ -75,7 +99,9 @@ function loadDeferredData({context}) {
 
 export default function Collection() {
   /** @type {LoaderReturnData} */
-  const {collection} = useLoaderData();
+  const {collection, currency, locale} = useLoaderData();
+  const {search} = useLocation();
+  const {filters, nodes} = collection.products;
 
   return (
     <div className="collection page-full-bleed ui-scope">
@@ -90,18 +116,36 @@ export default function Collection() {
             </p>
           ) : null}
         </header>
-        <PaginatedResourceSection
-          connection={collection.products}
-          resourcesClassName={PRODUCT_GRID_CLASSES}
+        <ProductFilters
+          filters={filters}
+          listing="collection"
+          currency={currency}
+          locale={locale}
         >
-          {({node: product, index}) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              loading={index < 4 ? 'eager' : 'lazy'}
+          {nodes.length ? (
+            <PaginatedResourceSection
+              connection={collection.products}
+              resourcesClassName={
+                filters.length
+                  ? FILTERED_PRODUCT_GRID_CLASSES
+                  : PRODUCT_GRID_CLASSES
+              }
+            >
+              {({node: product, index}) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  loading={index < 4 ? 'eager' : 'lazy'}
+                />
+              )}
+            </PaginatedResourceSection>
+          ) : (
+            <FilteredEmptyState
+              hasFilters={hasActiveFilters(new URLSearchParams(search))}
+              emptyMessage="This collection has no products yet."
             />
           )}
-        </PaginatedResourceSection>
+        </ProductFilters>
       </div>
       <Analytics.CollectionView
         data={{
@@ -118,6 +162,7 @@ export default function Collection() {
 // NOTE: https://shopify.dev/docs/api/storefront/2022-04/objects/collection
 const COLLECTION_QUERY = `#graphql
   ${PRODUCT_CARD_FRAGMENT}
+  ${PRODUCT_FILTER_FRAGMENT}
   query Collection(
     $handle: String!
     $country: CountryCode
@@ -126,7 +171,18 @@ const COLLECTION_QUERY = `#graphql
     $last: Int
     $startCursor: String
     $endCursor: String
+    $filters: [ProductFilter!]
+    $sortKey: ProductCollectionSortKeys
+    $reverse: Boolean
   ) @inContext(country: $country, language: $language) {
+    localization {
+      country {
+        currency {
+          isoCode
+          symbol
+        }
+      }
+    }
     collection(handle: $handle) {
       id
       handle
@@ -136,8 +192,14 @@ const COLLECTION_QUERY = `#graphql
         first: $first,
         last: $last,
         before: $startCursor,
-        after: $endCursor
+        after: $endCursor,
+        filters: $filters,
+        sortKey: $sortKey,
+        reverse: $reverse
       ) {
+        filters {
+          ...ProductFilter
+        }
         nodes {
           ...ProductCard
         }
