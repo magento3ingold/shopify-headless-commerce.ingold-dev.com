@@ -6,6 +6,8 @@ const PAGINATION_LINK_CLASSES =
 
 /**
  * <PaginatedResourceSection> encapsulates the previous and next pagination behaviors throughout your application.
+ * `endMessage` (optional) is shown below the resources once the last page is
+ * loaded, i.e. when there is at least one resource and no next page.
  * @param {Class<Pagination<NodesType>>['connection']>}
  */
 export function PaginatedResourceSection({
@@ -13,10 +15,11 @@ export function PaginatedResourceSection({
   children,
   ariaLabel,
   resourcesClassName,
+  endMessage,
 }) {
   return (
     <Pagination connection={connection}>
-      {({nodes, isLoading, PreviousLink, NextLink}) => {
+      {({nodes, isLoading, hasNextPage, PreviousLink, NextLink}) => {
         const resourcesMarkup = nodes.map((node, index) =>
           children({node, index}),
         );
@@ -56,6 +59,11 @@ export function PaginatedResourceSection({
                 )}
               </NextLink>
             </div>
+            {endMessage && !hasNextPage && nodes.length ? (
+              <p className="mt-12 text-center text-sm text-muted">
+                {endMessage}
+              </p>
+            ) : null}
           </div>
         );
       }}

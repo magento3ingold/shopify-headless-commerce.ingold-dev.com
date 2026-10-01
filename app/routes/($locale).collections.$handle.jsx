@@ -208,6 +208,11 @@ export default function Collection() {
           {nodes.length ? (
             <PaginatedResourceSection
               connection={collection.products}
+              endMessage={
+                isLimited
+                  ? undefined
+                  : "You've reached the end of the product list."
+              }
               resourcesClassName={
                 filters.length
                   ? FILTERED_PRODUCT_GRID_CLASSES
