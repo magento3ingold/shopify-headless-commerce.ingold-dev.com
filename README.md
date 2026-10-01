@@ -1,0 +1,1 @@
+# shopify-headless-commerce.ingold-dev.com
