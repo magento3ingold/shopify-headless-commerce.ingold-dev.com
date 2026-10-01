@@ -26,6 +26,9 @@ export const MAX_PRICE_PARAM = 'maxPrice';
 export const SORT_PARAM = 'sort';
 export const SALE_PARAM = 'sale';
 
+/** Products per page (and per "Load more") on collection listings. */
+export const PRODUCTS_PER_PAGE = 12;
+
 /** Hydrogen Pagination's params; dropped whenever filters/sort change. */
 const PAGINATION_PARAMS = ['cursor', 'direction'];
 

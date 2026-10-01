@@ -16,6 +16,7 @@ import {
 } from '~/lib/fragments';
 import {
   OUT_OF_STOCK_KEY,
+  PRODUCTS_PER_PAGE,
   getOutOfStockCandidateFilters,
   getPriceBounds,
   getPriceRange,
@@ -79,7 +80,7 @@ export async function loader(args) {
 async function loadCriticalData({context, request}) {
   const {storefront} = context;
   const paginationVariables = getPaginationVariables(request, {
-    pageBy: 8,
+    pageBy: PRODUCTS_PER_PAGE,
   });
   const {searchParams} = new URL(request.url);
   const filters = getProductFilters(searchParams);

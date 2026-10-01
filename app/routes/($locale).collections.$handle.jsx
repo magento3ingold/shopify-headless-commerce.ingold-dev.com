@@ -17,6 +17,7 @@ import {
 } from '~/lib/fragments';
 import {
   OUT_OF_STOCK_KEY,
+  PRODUCTS_PER_PAGE,
   getOutOfStockCandidateFilters,
   getPriceBounds,
   getPriceRange,
@@ -69,7 +70,7 @@ async function loadCriticalData({context, params, request}) {
   const {handle} = params;
   const {storefront} = context;
   const paginationVariables = getPaginationVariables(request, {
-    pageBy: 8,
+    pageBy: PRODUCTS_PER_PAGE,
   });
   // Filtering and sorting happen in Shopify, driven by the URL.
   const {searchParams} = new URL(request.url);
