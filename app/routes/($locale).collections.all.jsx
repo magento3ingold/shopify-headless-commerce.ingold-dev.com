@@ -6,8 +6,8 @@ import {PRODUCT_GRID_CLASSES} from '~/components/ProductGrid';
 import {
   FILTERED_PRODUCT_GRID_CLASSES,
   FilteredEmptyState,
+  LimitedResultsNotice,
   ProductFilters,
-  SaleLimitNotice,
 } from '~/components/ProductFilters';
 import {
   PRODUCT_CARD_FRAGMENT,
@@ -15,15 +15,23 @@ import {
   PRODUCT_SALE_FRAGMENT,
 } from '~/lib/fragments';
 import {
+  OUT_OF_STOCK_KEY,
+  getOutOfStockCandidateFilters,
   getPriceBounds,
   getPriceRange,
   getProductFilters,
   getSortOption,
   hasActiveFilters,
+  isOutOfStockOnly,
   isRefinedListing,
   isSaleSelected,
 } from '~/lib/product-filters';
 import {SALE_SCAN_LIMIT, selectOnSaleProducts} from '~/lib/sale.server';
+import {
+  SOLD_OUT_SCAN_LIMIT,
+  countSoldOut,
+  onlySoldOut,
+} from '~/lib/availability.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -82,38 +90,53 @@ async function loadCriticalData({context, request}) {
   const filtered = filters.length > 0;
   const hasPrice = getPriceRange(searchParams) !== null;
   const sale = isSaleSelected(searchParams);
+  // Shopify's "Out of stock" matches per variant; only products with no
+  // sellable variant are kept (see ~/lib/availability.server).
+  const soldOutOnly = isOutOfStockOnly(searchParams);
 
-  const [{catalog, filteredCatalog, facets, priceFacets, localization}] =
-    await Promise.all([
-      storefront.query(CATALOG_QUERY, {
-        variables: {
-          filtered,
-          filters,
-          sortKey,
-          productsSortKey,
-          reverse,
-          filteredLimit: FILTERED_RESULTS_LIMIT,
-          hasPrice,
-          // Shopify reports the applied price range as the available range,
-          // so the slider bounds are read without the price filter.
-          filtersWithoutPrice: getProductFilters(searchParams, {
-            includePrice: false,
-          }),
-          ...(sale
-            ? {
-                first: SALE_SCAN_LIMIT,
-                last: null,
-                startCursor: null,
-                endCursor: null,
-              }
-            : paginationVariables),
-        },
-      }),
-      // Add other queries here, so that they are loaded in parallel
-    ]);
+  const [
+    {
+      catalog,
+      filteredCatalog,
+      facets,
+      priceFacets,
+      soldOutCandidates,
+      localization,
+    },
+  ] = await Promise.all([
+    storefront.query(CATALOG_QUERY, {
+      variables: {
+        filtered,
+        filters,
+        sortKey,
+        productsSortKey,
+        reverse,
+        filteredLimit: FILTERED_RESULTS_LIMIT,
+        hasPrice,
+        // Shopify reports the applied price range as the available range,
+        // so the slider bounds are read without the price filter.
+        filtersWithoutPrice: getProductFilters(searchParams, {
+          includePrice: false,
+        }),
+        soldOutFilters: getOutOfStockCandidateFilters(searchParams),
+        soldOutLimit: SOLD_OUT_SCAN_LIMIT,
+        ...(sale
+          ? {
+              first: SALE_SCAN_LIMIT,
+              last: null,
+              startCursor: null,
+              endCursor: null,
+            }
+          : paginationVariables),
+      },
+    }),
+    // Add other queries here, so that they are loaded in parallel
+  ]);
 
   const source = filtered ? filteredCatalog : catalog;
-  const nodes = uniqueById(source.nodes);
+  let nodes = uniqueById(source.nodes);
+  if (soldOutOnly) nodes = onlySoldOut(nodes);
+  if (sale) nodes = await selectOnSaleProducts(storefront, nodes);
   const bounded = filtered || sale;
   const shopifyFilters = (filtered ? filteredCatalog : facets).productFilters;
 
@@ -121,7 +144,7 @@ async function loadCriticalData({context, request}) {
   return {
     products: bounded
       ? {
-          nodes: sale ? await selectOnSaleProducts(storefront, nodes) : nodes,
+          nodes,
           pageInfo: {
             hasPreviousPage: false,
             hasNextPage: false,
@@ -130,14 +153,17 @@ async function loadCriticalData({context, request}) {
           },
         }
       : catalog,
-    isLimited:
-      filtered && !sale && source.nodes.length >= FILTERED_RESULTS_LIMIT,
-    // More matching products exist than the sale check examined.
-    isSaleLimited:
-      sale &&
-      (filtered
-        ? source.nodes.length >= FILTERED_RESULTS_LIMIT
-        : source.pageInfo.hasNextPage),
+    // More matching products exist than the bounded request returned.
+    isLimited: filtered
+      ? source.nodes.length >= FILTERED_RESULTS_LIMIT
+      : sale && source.pageInfo.hasNextPage,
+    // Shopify's own "Out of stock" count is per variant.
+    countOverrides: {
+      [OUT_OF_STOCK_KEY]: countSoldOut(
+        soldOutCandidates.nodes,
+        soldOutCandidates.nodes.length < SOLD_OUT_SCAN_LIMIT,
+      ),
+    },
     filters: shopifyFilters,
     priceBounds: getPriceBounds(
       hasPrice ? priceFacets.productFilters : shopifyFilters,
@@ -179,7 +205,7 @@ export default function Collection() {
   const {
     products,
     isLimited,
-    isSaleLimited,
+    countOverrides,
     filters,
     priceBounds,
     currency,
@@ -201,6 +227,7 @@ export default function Collection() {
           filters={filters}
           listing="search"
           priceBounds={priceBounds}
+          countOverrides={countOverrides}
           currency={currency}
           locale={locale}
         >
@@ -225,13 +252,7 @@ export default function Collection() {
               }
             </PaginatedResourceSection>
           ) : null}
-          {isLimited ? (
-            <p className="mt-10 text-center text-sm text-muted">
-              Showing the first {products.nodes.length} matching products. Add
-              more filters to narrow the results.
-            </p>
-          ) : null}
-          {isSaleLimited ? <SaleLimitNotice /> : null}
+          {isLimited ? <LimitedResultsNotice /> : null}
           {products.nodes.length ? null : (
             <FilteredEmptyState hasFilters={hasActiveFilters(searchParams)} />
           )}
@@ -259,6 +280,8 @@ const CATALOG_QUERY = `#graphql
     $filteredLimit: Int!
     $hasPrice: Boolean!
     $filtersWithoutPrice: [ProductFilter!]
+    $soldOutFilters: [ProductFilter!]
+    $soldOutLimit: Int!
   ) @inContext(country: $country, language: $language) {
     localization {
       country {
@@ -292,6 +315,18 @@ const CATALOG_QUERY = `#graphql
       @skip(if: $filtered) {
       productFilters {
         ...ProductFilter
+      }
+    }
+    soldOutCandidates: search(
+      query: ""
+      types: [PRODUCT]
+      productFilters: $soldOutFilters
+      first: $soldOutLimit
+    ) {
+      nodes {
+        ... on Product {
+          availableForSale
+        }
       }
     }
     priceFacets: search(

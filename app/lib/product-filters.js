@@ -168,6 +168,42 @@ export function getProductFilters(searchParams, {includePrice = true} = {}) {
   return filters;
 }
 
+/**
+ * Identity of Shopify's "Out of stock" availability value. Shopify matches
+ * `available: false` per variant, so it also returns products that still
+ * have sellable variants; listings correct this on the server.
+ */
+export const OUT_OF_STOCK_KEY = filterKey({available: false});
+const IN_STOCK_KEY = filterKey({available: true});
+
+/**
+ * True when "Out of stock" is selected without "In stock" (both together
+ * mean every product), i.e. when only fully sold-out products may show.
+ * @param {URLSearchParams} searchParams
+ */
+export function isOutOfStockOnly(searchParams) {
+  const keys = new Set(
+    getSelectedFilterInputs(searchParams).map((entry) => entry.key),
+  );
+  return keys.has(OUT_OF_STOCK_KEY) && !keys.has(IN_STOCK_KEY);
+}
+
+/**
+ * The current filters with the availability selection replaced by
+ * `available: false`: the candidates for the corrected "Out of stock"
+ * count.
+ * @param {URLSearchParams} searchParams
+ * @return {ProductFilter[]}
+ */
+export function getOutOfStockCandidateFilters(searchParams) {
+  return [
+    ...getProductFilters(searchParams).filter(
+      (filter) => !('available' in filter),
+    ),
+    {available: false},
+  ];
+}
+
 /** @param {URLSearchParams} searchParams */
 export function isSaleSelected(searchParams) {
   return searchParams.get(SALE_PARAM) === '1';

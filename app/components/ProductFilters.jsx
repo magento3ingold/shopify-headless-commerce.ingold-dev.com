@@ -47,6 +47,7 @@ const VISIBLE_VALUES = 8;
  *   filters: ShopifyFilter[];
  *   listing: 'collection' | 'search';
  *   priceBounds?: {min: number; max: number} | null;
+ *   countOverrides?: Record<string, number | null>;
  *   currency: {isoCode: string; symbol: string};
  *   locale: string;
  *   children: React.ReactNode;
@@ -56,6 +57,7 @@ export function ProductFilters({
   filters,
   listing,
   priceBounds = null,
+  countOverrides = {},
   currency,
   locale,
   children,
@@ -69,7 +71,14 @@ export function ProductFilters({
 
   const chips = useActiveFilterChips(filters, searchParams, currency, locale);
   const hasFilters = filters.length > 0;
-  const formProps = {filters, priceBounds, currency, locale, state};
+  const formProps = {
+    filters,
+    priceBounds,
+    countOverrides,
+    currency,
+    locale,
+    state,
+  };
 
   return (
     <div className="lg:grid lg:grid-cols-[15rem_minmax(0,1fr)] lg:gap-10 xl:grid-cols-[17rem_minmax(0,1fr)]">
@@ -140,14 +149,14 @@ export function FilteredEmptyState({hasFilters, emptyMessage}) {
 }
 
 /**
- * Shown when the "On sale" check examined only part of the matching
- * products (see ~/lib/sale.server).
+ * Shown when a server-side correction ("On sale", "Out of stock") examined
+ * only the first page of matching products.
  */
-export function SaleLimitNotice() {
+export function LimitedResultsNotice() {
   return (
     <p className="mt-10 text-center text-sm text-muted">
-      Sale items are picked from the first matching products only. Add filters
-      to narrow the results and see every discounted product.
+      These results come from the first matching products only. Add filters to
+      narrow the results.
     </p>
   );
 }
@@ -185,7 +194,15 @@ function useFilterState() {
  * JavaScript every change is applied immediately.
  * @param {FormProps & {idPrefix: string}}
  */
-function FilterForm({filters, priceBounds, currency, locale, state, idPrefix}) {
+function FilterForm({
+  filters,
+  priceBounds,
+  countOverrides,
+  currency,
+  locale,
+  state,
+  idPrefix,
+}) {
   const {location, searchParams} = state;
   const selectedKeys = useMemo(
     () =>
@@ -214,6 +231,7 @@ function FilterForm({filters, priceBounds, currency, locale, state, idPrefix}) {
             locale={locale}
             state={state}
             selectedKeys={selectedKeys}
+            countOverrides={countOverrides}
             idPrefix={idPrefix}
             defaultOpen={index < INITIALLY_OPEN_GROUPS}
           />
@@ -240,6 +258,7 @@ function FilterForm({filters, priceBounds, currency, locale, state, idPrefix}) {
  *   locale: string;
  *   state: ReturnType<typeof useFilterState>;
  *   selectedKeys: Set<string>;
+ *   countOverrides: Record<string, number | null>;
  *   idPrefix: string;
  *   defaultOpen: boolean;
  * }}
@@ -251,17 +270,22 @@ function FilterGroup({
   locale,
   state,
   selectedKeys,
+  countOverrides,
   idPrefix,
   defaultOpen,
 }) {
   const isPrice = filter.type === 'PRICE_RANGE';
   const values = useMemo(
     () =>
-      filter.values.map((value) => ({
-        ...value,
-        parsed: parseFilterInput(value.input),
-      })),
-    [filter.values],
+      filter.values.map((value) => {
+        const parsed = parseFilterInput(value.input);
+        const key = parsed ? filterKey(parsed) : null;
+        // Corrected count (null = unknown) where Shopify's is misleading.
+        return key && key in countOverrides
+          ? {...value, parsed, count: countOverrides[key]}
+          : {...value, parsed};
+      }),
+    [filter.values, countOverrides],
   );
   const selectedCount = isPrice
     ? getPriceRange(state.searchParams)
@@ -362,7 +386,10 @@ function FilterGroup({
  * One Shopify filter value as a checkbox. Values that currently match no
  * products are disabled unless already selected.
  * @param {{
- *   value: ShopifyFilterValue & {parsed: object | null};
+ *   value: Omit<ShopifyFilterValue, 'count'> & {
+ *     count: number | null;
+ *     parsed: object | null;
+ *   };
  *   isVisual: boolean;
  *   checked: boolean;
  *   onToggle: () => void;
@@ -385,7 +412,10 @@ function FilterValueOption({value, isVisual, checked, onToggle}) {
       }
     />
   );
-  const count = <span className="text-muted">({value.count})</span>;
+  const count =
+    value.count === null ? null : (
+      <span className="text-muted">({value.count})</span>
+    );
 
   if (isVisual) {
     const style = swatchStyle(value);
@@ -464,9 +494,12 @@ function SaleToggle({state}) {
 const SLIDER_APPLY_DELAY_MS = 450;
 
 /**
- * Price range: a dual-handle slider plus numeric inputs, kept in sync.
- * The bounds are Shopify's reported price range; values are clamped into
- * it. A handle at its bound means "no limit" and leaves that URL param out.
+ * Price range as a dual-handle slider. The bounds are Shopify's reported
+ * price range; values are clamped into it and the handles never cross. A
+ * handle at its bound means "no limit" and leaves that URL param out.
+ *
+ * Without JavaScript the slider cannot submit, so plain min/max fields are
+ * rendered inside <noscript> for the native GET form only.
  * @param {{
  *   bounds: {min: number; max: number} | null;
  *   currency: {isoCode: string; symbol: string};
@@ -493,36 +526,34 @@ function PriceRangeFilter({bounds, currency, locale, state, idPrefix}) {
       : null;
 
   const [range, setRange] = useState(fromUrl);
-  const [minText, setMinText] = useState(urlMin);
-  const [maxText, setMaxText] = useState(urlMax);
-  const [error, setError] = useState(/** @type {string | null} */ (null));
   const sliderDirty = useRef(false);
 
   // Restore from the URL (reload, back/forward, chips, clear all).
   useEffect(() => {
     sliderDirty.current = false;
     setRange(fromUrl());
-    setMinText(urlMin);
-    setMaxText(urlMax);
-    setError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlMin, urlMax, boundsMin, boundsMax]);
 
   const format = (amount) => formatMoney(amount, currency.isoCode, locale);
-  const errorId = `${idPrefix}-price-error`;
 
   /** Applies a range; a value at its bound means "no limit". */
   const commit = (next) => {
-    const min = bounds && next.min <= bounds.min ? '' : next.min;
-    const max = bounds && next.max >= bounds.max ? '' : next.max;
+    if (!bounds) return;
+    const min = clampPrice(next.min, bounds);
+    const max = clampPrice(next.max, bounds);
+    if (validatePriceInput(String(min), String(max))) return;
     const target =
-      min === '' && max === ''
+      min <= bounds.min && max >= bounds.max
         ? clearPriceRange(searchParams)
-        : setPriceRange(searchParams, {min, max});
+        : setPriceRange(searchParams, {
+            min: min <= bounds.min ? '' : min,
+            max: max >= bounds.max ? '' : max,
+          });
     if (toSearch(target) !== toSearch(searchParams)) state.go(target);
   };
 
-  // Slider: apply after the shopper stops moving a handle.
+  // Apply after the shopper stops moving a handle.
   useEffect(() => {
     if (!sliderDirty.current || !range) return;
     const timer = setTimeout(() => {
@@ -535,50 +566,7 @@ function PriceRangeFilter({bounds, currency, locale, state, idPrefix}) {
 
   const onSlide = (next) => {
     sliderDirty.current = true;
-    setError(null);
     setRange(next);
-    setMinText(bounds && next.min <= bounds.min ? '' : String(next.min));
-    setMaxText(bounds && next.max >= bounds.max ? '' : String(next.max));
-  };
-
-  /** Typing moves the handles live; the value is applied on Enter/blur. */
-  const onType = (which, text) => {
-    (which === 'min' ? setMinText : setMaxText)(text);
-    const amount = Number(text);
-    if (!bounds || !range || text.trim() === '' || !Number.isFinite(amount)) {
-      return;
-    }
-    const clamped = clampPrice(amount, bounds);
-    setRange(
-      which === 'min'
-        ? {min: Math.min(clamped, range.max), max: range.max}
-        : {min: range.min, max: Math.max(clamped, range.min)},
-    );
-  };
-
-  const applyInputs = () => {
-    const message = validatePriceInput(minText, maxText);
-    setError(message);
-    if (message) return;
-    const min = minText.trim() === '' ? undefined : Number(minText);
-    const max = maxText.trim() === '' ? undefined : Number(maxText);
-    if (!bounds) {
-      state.go(setPriceRange(searchParams, {min, max}));
-      return;
-    }
-    const next = {
-      min: clampPrice(min ?? bounds.min, bounds),
-      max: clampPrice(max ?? bounds.max, bounds),
-    };
-    if (next.min > next.max) {
-      setError('The minimum price cannot be higher than the maximum.');
-      return;
-    }
-    sliderDirty.current = false;
-    setRange(next);
-    setMinText(next.min <= bounds.min ? '' : String(next.min));
-    setMaxText(next.max >= bounds.max ? '' : String(next.max));
-    commit(next);
   };
 
   return (
@@ -594,49 +582,29 @@ function PriceRangeFilter({bounds, currency, locale, state, idPrefix}) {
             onChange={onSlide}
             formatValue={format}
           />
+          <p className="mt-3 text-xs text-muted">
+            Prices in {currency.isoCode}
+          </p>
         </>
       ) : null}
-      <div className="mt-4 flex items-end gap-2">
-        <PriceInput
-          id={`${idPrefix}-min`}
-          label="Min"
-          name={MIN_PRICE_PARAM}
-          value={minText}
-          onChange={(text) => onType('min', text)}
-          onEnter={applyInputs}
-          onBlur={() => {
-            if (minText !== urlMin) applyInputs();
-          }}
-          symbol={currency.symbol}
-          placeholder={String(boundsMin ?? 0)}
-          invalid={Boolean(error)}
-          errorId={errorId}
-        />
-        <span aria-hidden="true" className="pb-2.5 text-muted">
-          –
-        </span>
-        <PriceInput
-          id={`${idPrefix}-max`}
-          label="Max"
-          name={MAX_PRICE_PARAM}
-          value={maxText}
-          onChange={(text) => onType('max', text)}
-          onEnter={applyInputs}
-          onBlur={() => {
-            if (maxText !== urlMax) applyInputs();
-          }}
-          symbol={currency.symbol}
-          placeholder={boundsMax !== undefined ? String(boundsMax) : ''}
-          invalid={Boolean(error)}
-          errorId={errorId}
-        />
-      </div>
-      <p className="mt-2 text-xs text-muted">Prices in {currency.isoCode}</p>
-      {error ? (
-        <p id={errorId} role="alert" className="mt-2 text-sm text-sale">
-          {error}
-        </p>
-      ) : null}
+      <noscript>
+        <div className="mt-4 flex items-end gap-2">
+          <NoScriptPriceInput
+            id={`${idPrefix}-min`}
+            label="Min"
+            name={MIN_PRICE_PARAM}
+            defaultValue={urlMin}
+            placeholder={String(boundsMin ?? 0)}
+          />
+          <NoScriptPriceInput
+            id={`${idPrefix}-max`}
+            label="Max"
+            name={MAX_PRICE_PARAM}
+            defaultValue={urlMax}
+            placeholder={boundsMax !== undefined ? String(boundsMax) : ''}
+          />
+        </div>
+      </noscript>
       {applied ? (
         <button
           type="button"
@@ -651,69 +619,32 @@ function PriceRangeFilter({bounds, currency, locale, state, idPrefix}) {
 }
 
 /**
+ * Plain price field for the no-JavaScript fallback (inside <noscript>).
  * @param {{
  *   id: string;
  *   label: string;
  *   name: string;
- *   value: string;
- *   onChange: (value: string) => void;
- *   onEnter: () => void;
- *   onBlur: () => void;
- *   symbol: string;
+ *   defaultValue: string;
  *   placeholder: string;
- *   invalid: boolean;
- *   errorId: string;
  * }}
  */
-function PriceInput({
-  id,
-  label,
-  name,
-  value,
-  onChange,
-  onEnter,
-  onBlur,
-  symbol,
-  placeholder,
-  invalid,
-  errorId,
-}) {
+function NoScriptPriceInput({id, label, name, defaultValue, placeholder}) {
   return (
     <div className="min-w-0 flex-1">
       <label htmlFor={id} className="mb-1 block text-xs font-medium text-muted">
         {label}
       </label>
-      <div
-        className={`flex items-center rounded-lg border bg-white px-3 focus-within:border-ink ${
-          invalid ? 'border-sale' : 'border-line'
-        }`}
-      >
-        <span aria-hidden="true" className="text-sm text-muted">
-          {symbol}
-        </span>
-        <input
-          id={id}
-          name={name}
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="0.01"
-          value={value}
-          placeholder={placeholder}
-          aria-invalid={invalid || undefined}
-          aria-describedby={invalid ? errorId : undefined}
-          onChange={(event) => onChange(event.target.value)}
-          onBlur={onBlur}
-          onKeyDown={(event) => {
-            // Apply instead of submitting the surrounding filter form.
-            if (event.key === 'Enter') {
-              event.preventDefault();
-              onEnter();
-            }
-          }}
-          className="m-0 w-full min-w-0 border-0 bg-transparent py-2 pl-1.5 text-sm text-ink outline-none"
-        />
-      </div>
+      <input
+        id={id}
+        name={name}
+        type="number"
+        inputMode="decimal"
+        min="0"
+        step="0.01"
+        defaultValue={defaultValue}
+        placeholder={placeholder}
+        className="m-0 w-full min-w-0 rounded-lg border border-line bg-white px-3 py-2 text-sm text-ink"
+      />
     </div>
   );
 }
@@ -1021,6 +952,7 @@ function FilterIcon() {
  * @typedef {{
  *   filters: ShopifyFilter[];
  *   priceBounds: {min: number; max: number} | null;
+ *   countOverrides: Record<string, number | null>;
  *   currency: {isoCode: string; symbol: string};
  *   locale: string;
  *   state: ReturnType<typeof useFilterState>;

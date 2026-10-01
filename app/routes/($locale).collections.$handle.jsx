@@ -7,8 +7,8 @@ import {PRODUCT_GRID_CLASSES} from '~/components/ProductGrid';
 import {
   FILTERED_PRODUCT_GRID_CLASSES,
   FilteredEmptyState,
+  LimitedResultsNotice,
   ProductFilters,
-  SaleLimitNotice,
 } from '~/components/ProductFilters';
 import {
   PRODUCT_CARD_FRAGMENT,
@@ -16,15 +16,23 @@ import {
   PRODUCT_SALE_FRAGMENT,
 } from '~/lib/fragments';
 import {
+  OUT_OF_STOCK_KEY,
+  getOutOfStockCandidateFilters,
   getPriceBounds,
   getPriceRange,
   getProductFilters,
   getSortOption,
   hasActiveFilters,
+  isOutOfStockOnly,
   isRefinedListing,
   isSaleSelected,
 } from '~/lib/product-filters';
 import {SALE_SCAN_LIMIT, selectOnSaleProducts} from '~/lib/sale.server';
+import {
+  SOLD_OUT_SCAN_LIMIT,
+  countSoldOut,
+  onlySoldOut,
+} from '~/lib/availability.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -71,6 +79,11 @@ async function loadCriticalData({context, params, request}) {
   // "On sale" is decided on the server from one bounded page of Shopify's
   // (filtered, sorted) results; see ~/lib/sale.server.
   const sale = isSaleSelected(searchParams);
+  // Shopify's "Out of stock" matches per variant; only products with no
+  // sellable variant are kept (see ~/lib/availability.server).
+  const soldOutOnly = isOutOfStockOnly(searchParams);
+  // Both corrections work on one bounded page instead of cursor pages.
+  const bounded = sale || soldOutOnly;
 
   if (!handle) {
     throw redirect('/collections');
@@ -89,9 +102,11 @@ async function loadCriticalData({context, params, request}) {
         filtersWithoutPrice: getProductFilters(searchParams, {
           includePrice: false,
         }),
-        ...(sale
+        soldOutFilters: getOutOfStockCandidateFilters(searchParams),
+        soldOutLimit: SOLD_OUT_SCAN_LIMIT,
+        ...(bounded
           ? {
-              first: SALE_SCAN_LIMIT,
+              first: Math.max(SALE_SCAN_LIMIT, SOLD_OUT_SCAN_LIMIT),
               last: null,
               startCursor: null,
               endCursor: null,
@@ -111,19 +126,18 @@ async function loadCriticalData({context, params, request}) {
   // The API handle might be localized, so redirect to the localized handle
   redirectIfHandleIsLocalized(request, {handle, data: collection});
 
-  const {products} = collection;
-  const saleProducts = sale
-    ? await selectOnSaleProducts(storefront, products.nodes)
-    : null;
+  const {products, soldOutCandidates} = collection;
+  let nodes = soldOutOnly ? onlySoldOut(products.nodes) : products.nodes;
+  if (sale) nodes = await selectOnSaleProducts(storefront, nodes);
 
   const {language, country} = storefront.i18n;
   return {
     collection: {
       ...collection,
-      products: saleProducts
+      products: bounded
         ? {
             ...products,
-            nodes: saleProducts,
+            nodes,
             pageInfo: {
               hasPreviousPage: false,
               hasNextPage: false,
@@ -136,8 +150,15 @@ async function loadCriticalData({context, params, request}) {
     priceBounds: getPriceBounds(
       hasPrice ? collection.priceFacets.filters : products.filters,
     ),
-    // More matching products exist than the sale check examined.
-    isSaleLimited: sale && products.pageInfo.hasNextPage,
+    // More matching products exist than the bounded page examined.
+    isLimited: bounded && products.pageInfo.hasNextPage,
+    // Shopify's own "Out of stock" count is per variant.
+    countOverrides: {
+      [OUT_OF_STOCK_KEY]: countSoldOut(
+        soldOutCandidates.nodes,
+        !soldOutCandidates.pageInfo.hasNextPage,
+      ),
+    },
     currency: localization.country.currency,
     locale: `${language.toLowerCase()}-${country}`,
   };
@@ -155,7 +176,7 @@ function loadDeferredData({context}) {
 
 export default function Collection() {
   /** @type {LoaderReturnData} */
-  const {collection, priceBounds, isSaleLimited, currency, locale} =
+  const {collection, priceBounds, isLimited, countOverrides, currency, locale} =
     useLoaderData();
   const {search} = useLocation();
   const searchParams = new URLSearchParams(search);
@@ -179,6 +200,7 @@ export default function Collection() {
           filters={filters}
           listing="collection"
           priceBounds={priceBounds}
+          countOverrides={countOverrides}
           currency={currency}
           locale={locale}
         >
@@ -201,7 +223,7 @@ export default function Collection() {
               )}
             </PaginatedResourceSection>
           ) : null}
-          {isSaleLimited ? <SaleLimitNotice /> : null}
+          {isLimited ? <LimitedResultsNotice /> : null}
           {nodes.length ? null : (
             <FilteredEmptyState
               hasFilters={hasActiveFilters(searchParams)}
@@ -240,6 +262,8 @@ const COLLECTION_QUERY = `#graphql
     $reverse: Boolean
     $hasPrice: Boolean!
     $filtersWithoutPrice: [ProductFilter!]
+    $soldOutFilters: [ProductFilter!]
+    $soldOutLimit: Int!
   ) @inContext(country: $country, language: $language) {
     localization {
       country {
@@ -254,6 +278,17 @@ const COLLECTION_QUERY = `#graphql
       handle
       title
       description
+      soldOutCandidates: products(
+        first: $soldOutLimit
+        filters: $soldOutFilters
+      ) {
+        nodes {
+          availableForSale
+        }
+        pageInfo {
+          hasNextPage
+        }
+      }
       priceFacets: products(first: 1, filters: $filtersWithoutPrice)
         @include(if: $hasPrice) {
         filters {
