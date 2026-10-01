@@ -1,4 +1,5 @@
-import {useLoaderData} from 'react-router';
+import {Suspense} from 'react';
+import {Await, useLoaderData} from 'react-router';
 import {
   getSelectedProductOptions,
   Analytics,
@@ -8,9 +9,15 @@ import {
   useSelectedOptionInUrlParam,
 } from '@shopify/hydrogen';
 import {ProductPrice} from '~/components/ProductPrice';
-import {ProductImage} from '~/components/ProductImage';
+import {ProductGallery} from '~/components/ProductGallery';
 import {ProductForm} from '~/components/ProductForm';
+import {ProductReviews, ReviewSummaryLink} from '~/components/ProductReviews';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
+import {
+  PRODUCT_REVIEW_SUMMARY_FRAGMENT,
+  parseReviewSummary,
+} from '~/lib/reviews';
+import {loadProductReviews} from '~/lib/reviews.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -35,7 +42,19 @@ export async function loader(args) {
   // Await the critical data required to render initial state of the page
   const criticalData = await loadCriticalData(args);
 
-  return {...deferredData, ...criticalData};
+  return {
+    ...deferredData,
+    ...criticalData,
+    // Individual reviews come from a review provider (if one is set up) and
+    // stream in below the fold without blocking the page.
+    reviews: loadProductReviews({
+      env: args.context.env,
+      product: {
+        id: criticalData.product.id,
+        handle: criticalData.product.handle,
+      },
+    }),
+  };
 }
 
 /**
@@ -67,6 +86,7 @@ async function loadCriticalData({context, params, request}) {
 
   return {
     product,
+    reviewSummary: parseReviewSummary(product),
   };
 }
 
@@ -85,7 +105,7 @@ function loadDeferredData({context, params}) {
 
 export default function Product() {
   /** @type {LoaderReturnData} */
-  const {product} = useLoaderData();
+  const {product, reviewSummary, reviews} = useLoaderData();
 
   // Optimistically selects a variant with given available variant information
   const selectedVariant = useOptimisticVariant(
@@ -104,30 +124,72 @@ export default function Product() {
   });
 
   const {title, descriptionHtml} = product;
+  const images = product.media.nodes
+    .map((media) => media.image)
+    .filter(Boolean);
 
   return (
-    <div className="product">
-      <ProductImage image={selectedVariant?.image} />
-      <div className="product-main">
-        <h1>{title}</h1>
-        <ProductPrice
-          price={selectedVariant?.price}
-          compareAtPrice={selectedVariant?.compareAtPrice}
-        />
-        <br />
-        <ProductForm
-          productOptions={productOptions}
-          selectedVariant={selectedVariant}
-          product={product}
-        />
-        <br />
-        <br />
-        <p>
-          <strong>Description</strong>
-        </p>
-        <br />
-        <div dangerouslySetInnerHTML={{__html: descriptionHtml}} />
-        <br />
+    <div className="product-page page-full-bleed ui-scope">
+      <div className="page-width py-8 md:py-12">
+        <div className="grid gap-8 lg:grid-cols-2 lg:gap-14">
+          <ProductGallery
+            images={images}
+            title={title}
+            selectedImageUrl={selectedVariant?.image?.url}
+          />
+          <div className="lg:sticky lg:top-28 lg:self-start">
+            <h1 className="font-display text-3xl leading-tight font-medium text-ink md:text-4xl">
+              {title}
+            </h1>
+            <ReviewSummaryLink summary={reviewSummary} />
+            <div className="mt-4 text-lg">
+              <ProductPrice
+                price={selectedVariant?.price}
+                compareAtPrice={selectedVariant?.compareAtPrice}
+              />
+            </div>
+            <div className="mt-8">
+              <ProductForm
+                productOptions={productOptions}
+                selectedVariant={selectedVariant}
+                product={product}
+              />
+            </div>
+            {descriptionHtml ? (
+              <div className="mt-10 border-t border-line pt-8">
+                <h2 className="text-sm font-semibold tracking-wide text-ink uppercase">
+                  Description
+                </h2>
+                <div
+                  className="mt-4 space-y-3 text-sm leading-relaxed text-ink-soft"
+                  dangerouslySetInnerHTML={{__html: descriptionHtml}}
+                />
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-16 md:mt-24">
+          <Suspense
+            fallback={
+              <ProductReviews
+                productHandle={product.handle}
+                summary={reviewSummary}
+                initialPage={null}
+              />
+            }
+          >
+            <Await resolve={reviews} errorElement={null}>
+              {(page) => (
+                <ProductReviews
+                  productHandle={product.handle}
+                  summary={reviewSummary}
+                  initialPage={page}
+                />
+              )}
+            </Await>
+          </Suspense>
+        </div>
       </div>
       <Analytics.ProductView
         data={{
@@ -222,8 +284,24 @@ const PRODUCT_FRAGMENT = `#graphql
       description
       title
     }
+    media(first: 20) {
+      nodes {
+        ... on MediaImage {
+          id
+          image {
+            id
+            url
+            altText
+            width
+            height
+          }
+        }
+      }
+    }
+    ...ProductReviewSummary
   }
   ${PRODUCT_VARIANT_FRAGMENT}
+  ${PRODUCT_REVIEW_SUMMARY_FRAGMENT}
 `;
 
 const PRODUCT_QUERY = `#graphql
