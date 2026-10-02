@@ -14,6 +14,8 @@ import {AddressCard} from '~/components/account/AddressCard';
 import {AddressFormDialog} from '~/components/account/AddressFormDialog';
 import {ConfirmDialog} from '~/components/account/ConfirmDialog';
 import {PlusIcon} from '~/components/Icons';
+import {normalizePhone} from '~/lib/phone';
+import {CUSTOMER_DEFAULT_ADDRESS_QUERY} from '~/graphql/customer-account/CustomerDetailsQuery';
 
 /** CustomerAddressInput fields (Customer Account API). */
 const ADDRESS_KEYS = [
@@ -98,6 +100,22 @@ export async function action({request, context}) {
     if (intent === 'delete' || intent === 'setDefault') {
       if (!addressId) return fail('Missing address.');
       if (intent === 'delete') {
+        // Business rule, enforced here and not only in the UI: the default
+        // address cannot be deleted. Default status comes from the signed-in
+        // customer's data in Shopify, never from the browser.
+        const {data: current, errors} = await customerAccount.query(
+          CUSTOMER_DEFAULT_ADDRESS_QUERY,
+          {variables: {language}},
+        );
+        if (errors?.length || !current?.customer) {
+          return fail('The address could not be deleted. Please try again.');
+        }
+        if (current.customer.defaultAddress?.id === addressId) {
+          return fail(
+            'The default address cannot be deleted. Set another address as default first.',
+            409,
+          );
+        }
         const {error, payload} = await run(
           DELETE_ADDRESS_MUTATION,
           {addressId},
@@ -139,13 +157,11 @@ export async function action({request, context}) {
     if (address.territoryCode && !/^[A-Z]{2}$/.test(address.territoryCode)) {
       fieldErrors.territoryCode = 'Please choose a country.';
     }
-    if (
-      address.phoneNumber &&
-      !/^\+?[1-9]\d{3,14}$/.test(address.phoneNumber)
-    ) {
-      fieldErrors.phoneNumber =
-        'Use international format, e.g. +4930123456 (digits only).';
-    }
+    // Phone is optional; when given it is checked leniently and sent
+    // without separators. Shopify remains the final validator.
+    const phone = normalizePhone(address.phoneNumber);
+    if (phone.ok) address.phoneNumber = phone.value;
+    else fieldErrors.phoneNumber = phone.error;
     if (Object.keys(fieldErrors).length) {
       return fail('Please check the highlighted fields.', 400, fieldErrors);
     }

@@ -42,3 +42,16 @@ export const CUSTOMER_DETAILS_QUERY = `#graphql
   }
   ${CUSTOMER_FRAGMENT}
 `;
+
+// The signed-in customer's current default address (server-side checks).
+// NOTE: https://shopify.dev/docs/api/customer/latest/objects/Customer
+export const CUSTOMER_DEFAULT_ADDRESS_QUERY = `#graphql
+  query CustomerDefaultAddress($language: LanguageCode)
+  @inContext(language: $language) {
+    customer {
+      defaultAddress {
+        id
+      }
+    }
+  }
+`;

@@ -63,27 +63,36 @@ export function AddressCard({
         >
           Edit
         </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className={ACCOUNT_BUTTON.small}
-          aria-label={`Delete ${label}`}
-          aria-haspopup="dialog"
-        >
-          Delete
-        </button>
+        {/* The default address cannot be deleted (also enforced on the
+            server); set another address as default first. */}
         {!isDefault ? (
-          <button
-            type="button"
-            onClick={onMakeDefault}
-            disabled={makingDefault}
-            className={ACCOUNT_BUTTON.small}
-            aria-label={`Make ${label} the default address`}
-          >
-            {makingDefault ? 'Saving…' : 'Make Default'}
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={onDelete}
+              className={ACCOUNT_BUTTON.small}
+              aria-label={`Delete ${label}`}
+              aria-haspopup="dialog"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              onClick={onMakeDefault}
+              disabled={makingDefault}
+              className={ACCOUNT_BUTTON.small}
+              aria-label={`Make ${label} the default address`}
+            >
+              {makingDefault ? 'Saving…' : 'Make Default'}
+            </button>
+          </>
         ) : null}
       </div>
+      {isDefault ? (
+        <p className="mt-3 text-xs text-muted">
+          To delete this address, set another address as default first.
+        </p>
+      ) : null}
     </article>
   );
 }

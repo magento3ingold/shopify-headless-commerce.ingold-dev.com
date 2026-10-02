@@ -154,7 +154,7 @@ export function AddressFormDialog({
         {field('phoneNumber', 'Phone', {
           type: 'tel',
           autoComplete: 'tel',
-          hint: 'International format, e.g. +4930123456.',
+          hint: 'Optional. Include the country code, e.g. +49 123 456789.',
         })}
 
         {!isDefault ? (
