@@ -9,6 +9,7 @@ import {createLocalStorageAdapter} from './storage.js';
 import {createWishlistStore} from './store.js';
 import {createCustomerWishlistStore} from './customer-store.js';
 
+
 /**
  * Wishlist state for the whole storefront.
  *
