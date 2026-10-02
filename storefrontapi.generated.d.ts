@@ -1486,6 +1486,17 @@ export type NewestProductsQuery = {
   };
 };
 
+export type AddressCountriesQueryVariables = StorefrontAPI.Exact<{
+  country?: StorefrontAPI.InputMaybe<StorefrontAPI.CountryCode>;
+  language?: StorefrontAPI.InputMaybe<StorefrontAPI.LanguageCode>;
+}>;
+
+export type AddressCountriesQuery = {
+  localization: {
+    availableCountries: Array<Pick<StorefrontAPI.Country, 'isoCode' | 'name'>>;
+  };
+};
+
 export type ReviewProductQueryVariables = StorefrontAPI.Exact<{
   handle: StorefrontAPI.Scalars['String']['input'];
   country?: StorefrontAPI.InputMaybe<StorefrontAPI.CountryCode>;
@@ -2703,6 +2714,10 @@ interface GeneratedQueryTypes {
   '#graphql\n  query NewestProducts($country: CountryCode, $language: LanguageCode)\n    @inContext(country: $country, language: $language) {\n    products(first: 8, sortKey: CREATED_AT, reverse: true) {\n      nodes {\n        ...ProductCard\n      }\n    }\n  }\n  #graphql\n  fragment ProductCardMoney on MoneyV2 {\n    amount\n    currencyCode\n  }\n  fragment ProductCard on Product {\n    id\n    handle\n    title\n    availableForSale\n    requiresSellingPlan\n    variantsCount {\n      count\n    }\n    featuredImage {\n      id\n      altText\n      url\n      width\n      height\n    }\n    priceRange {\n      minVariantPrice {\n        ...ProductCardMoney\n      }\n      maxVariantPrice {\n        ...ProductCardMoney\n      }\n    }\n    selectedOrFirstAvailableVariant(\n      selectedOptions: []\n      ignoreUnknownOptions: true\n      caseInsensitiveMatch: true\n    ) {\n      id\n      title\n      availableForSale\n      price {\n        ...ProductCardMoney\n      }\n      compareAtPrice {\n        ...ProductCardMoney\n      }\n      image {\n        id\n        altText\n        url\n        width\n        height\n      }\n      selectedOptions {\n        name\n        value\n      }\n      product {\n        handle\n        title\n      }\n    }\n  }\n\n': {
     return: NewestProductsQuery;
     variables: NewestProductsQueryVariables;
+  };
+  '#graphql\n  query AddressCountries($country: CountryCode, $language: LanguageCode)\n    @inContext(country: $country, language: $language) {\n    localization {\n      availableCountries {\n        isoCode\n        name\n      }\n    }\n  }\n': {
+    return: AddressCountriesQuery;
+    variables: AddressCountriesQueryVariables;
   };
   '#graphql\n  query ReviewProduct(\n    $handle: String!\n    $country: CountryCode\n    $language: LanguageCode\n  ) @inContext(country: $country, language: $language) {\n    product(handle: $handle) {\n      id\n      handle\n    }\n  }\n': {
     return: ReviewProductQuery;

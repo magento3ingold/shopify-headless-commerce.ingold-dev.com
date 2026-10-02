@@ -1,7 +1,7 @@
 // NOTE: https://shopify.dev/docs/api/customer/latest/mutations/customerAddressUpdate
 export const UPDATE_ADDRESS_MUTATION = `#graphql
   mutation customerAddressUpdate(
-    $address: CustomerAddressInput!
+    $address: CustomerAddressInput
     $addressId: ID!
     $defaultAddress: Boolean
     $language: LanguageCode

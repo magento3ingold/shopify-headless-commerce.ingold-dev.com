@@ -164,6 +164,26 @@ export function ClockIcon(props) {
 }
 
 /** @param {IconProps} props */
+export function LogOutIcon(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
+      <path d="M10 17l-5-5 5-5" />
+      <path d="M5 12h11" />
+    </IconBase>
+  );
+}
+
+/** @param {IconProps} props */
+export function PlusIcon(props) {
+  return (
+    <IconBase {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </IconBase>
+  );
+}
+
+/** @param {IconProps} props */
 export function PinIcon(props) {
   return (
     <IconBase {...props}>

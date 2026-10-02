@@ -4,10 +4,14 @@ export const CUSTOMER_FRAGMENT = `#graphql
     id
     firstName
     lastName
+    displayName
+    emailAddress {
+      emailAddress
+    }
     defaultAddress {
       ...Address
     }
-    addresses(first: 6) {
+    addresses(first: 50) {
       nodes {
         ...Address
       }

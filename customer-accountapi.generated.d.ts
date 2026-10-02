@@ -4,7 +4,7 @@
 import type * as CustomerAccountAPI from '@shopify/hydrogen/customer-account-api-types';
 
 export type CustomerAddressUpdateMutationVariables = CustomerAccountAPI.Exact<{
-  address: CustomerAccountAPI.CustomerAddressInput;
+  address?: CustomerAccountAPI.InputMaybe<CustomerAccountAPI.CustomerAddressInput>;
   addressId: CustomerAccountAPI.Scalars['ID']['input'];
   defaultAddress?: CustomerAccountAPI.InputMaybe<
     CustomerAccountAPI.Scalars['Boolean']['input']
@@ -71,8 +71,11 @@ export type CustomerAddressCreateMutation = {
 
 export type CustomerFragment = Pick<
   CustomerAccountAPI.Customer,
-  'id' | 'firstName' | 'lastName'
+  'id' | 'firstName' | 'lastName' | 'displayName'
 > & {
+  emailAddress?: CustomerAccountAPI.Maybe<
+    Pick<CustomerAccountAPI.CustomerEmailAddress, 'emailAddress'>
+  >;
   defaultAddress?: CustomerAccountAPI.Maybe<
     Pick<
       CustomerAccountAPI.CustomerAddress,
@@ -134,8 +137,11 @@ export type CustomerDetailsQueryVariables = CustomerAccountAPI.Exact<{
 export type CustomerDetailsQuery = {
   customer: Pick<
     CustomerAccountAPI.Customer,
-    'id' | 'firstName' | 'lastName'
+    'id' | 'firstName' | 'lastName' | 'displayName'
   > & {
+    emailAddress?: CustomerAccountAPI.Maybe<
+      Pick<CustomerAccountAPI.CustomerEmailAddress, 'emailAddress'>
+    >;
     defaultAddress?: CustomerAccountAPI.Maybe<
       Pick<
         CustomerAccountAPI.CustomerAddress,
@@ -194,10 +200,16 @@ export type DiscountApplicationFragment = {
 
 export type OrderLineItemFullFragment = Pick<
   CustomerAccountAPI.LineItem,
-  'id' | 'title' | 'quantity' | 'variantTitle'
+  'id' | 'title' | 'name' | 'quantity' | 'variantTitle'
 > & {
   price?: CustomerAccountAPI.Maybe<
     Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+  >;
+  totalPrice?: CustomerAccountAPI.Maybe<
+    Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+  >;
+  variantOptions?: CustomerAccountAPI.Maybe<
+    Array<Pick<CustomerAccountAPI.LineItemVariantOption, 'name' | 'value'>>
   >;
   discountAllocations: Array<{
     allocatedAmount: Pick<
@@ -231,9 +243,18 @@ export type OrderFragment = Pick<
   | 'name'
   | 'confirmationNumber'
   | 'statusPageUrl'
+  | 'financialStatus'
   | 'fulfillmentStatus'
   | 'processedAt'
+  | 'cancelledAt'
 > & {
+  totalShipping: Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>;
+  discountInformation: {
+    totalDiscounts: Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>;
+  };
+  billingAddress?: CustomerAccountAPI.Maybe<
+    Pick<CustomerAccountAPI.CustomerAddress, 'name' | 'formatted'>
+  >;
   fulfillments: {nodes: Array<Pick<CustomerAccountAPI.Fulfillment, 'status'>>};
   totalTax?: CustomerAccountAPI.Maybe<
     Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
@@ -265,10 +286,18 @@ export type OrderFragment = Pick<
     nodes: Array<
       Pick<
         CustomerAccountAPI.LineItem,
-        'id' | 'title' | 'quantity' | 'variantTitle'
+        'id' | 'title' | 'name' | 'quantity' | 'variantTitle'
       > & {
         price?: CustomerAccountAPI.Maybe<
           Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+        >;
+        totalPrice?: CustomerAccountAPI.Maybe<
+          Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+        >;
+        variantOptions?: CustomerAccountAPI.Maybe<
+          Array<
+            Pick<CustomerAccountAPI.LineItemVariantOption, 'name' | 'value'>
+          >
         >;
         discountAllocations: Array<{
           allocatedAmount: Pick<
@@ -315,9 +344,24 @@ export type OrderQuery = {
       | 'name'
       | 'confirmationNumber'
       | 'statusPageUrl'
+      | 'financialStatus'
       | 'fulfillmentStatus'
       | 'processedAt'
+      | 'cancelledAt'
     > & {
+      totalShipping: Pick<
+        CustomerAccountAPI.MoneyV2,
+        'amount' | 'currencyCode'
+      >;
+      discountInformation: {
+        totalDiscounts: Pick<
+          CustomerAccountAPI.MoneyV2,
+          'amount' | 'currencyCode'
+        >;
+      };
+      billingAddress?: CustomerAccountAPI.Maybe<
+        Pick<CustomerAccountAPI.CustomerAddress, 'name' | 'formatted'>
+      >;
       fulfillments: {
         nodes: Array<Pick<CustomerAccountAPI.Fulfillment, 'status'>>;
       };
@@ -351,10 +395,18 @@ export type OrderQuery = {
         nodes: Array<
           Pick<
             CustomerAccountAPI.LineItem,
-            'id' | 'title' | 'quantity' | 'variantTitle'
+            'id' | 'title' | 'name' | 'quantity' | 'variantTitle'
           > & {
             price?: CustomerAccountAPI.Maybe<
               Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+            >;
+            totalPrice?: CustomerAccountAPI.Maybe<
+              Pick<CustomerAccountAPI.MoneyV2, 'amount' | 'currencyCode'>
+            >;
+            variantOptions?: CustomerAccountAPI.Maybe<
+              Array<
+                Pick<CustomerAccountAPI.LineItemVariantOption, 'name' | 'value'>
+              >
             >;
             discountAllocations: Array<{
               allocatedAmount: Pick<
@@ -556,11 +608,11 @@ export type CustomerWishlistSetMutation = {
 };
 
 interface GeneratedQueryTypes {
-  '#graphql\n  query CustomerDetails($language: LanguageCode) @inContext(language: $language) {\n    customer {\n      ...Customer\n    }\n  }\n  #graphql\n  fragment Customer on Customer {\n    id\n    firstName\n    lastName\n    defaultAddress {\n      ...Address\n    }\n    addresses(first: 6) {\n      nodes {\n        ...Address\n      }\n    }\n  }\n  fragment Address on CustomerAddress {\n    id\n    formatted\n    firstName\n    lastName\n    company\n    address1\n    address2\n    territoryCode\n    zoneCode\n    city\n    zip\n    phoneNumber\n  }\n\n': {
+  '#graphql\n  query CustomerDetails($language: LanguageCode) @inContext(language: $language) {\n    customer {\n      ...Customer\n    }\n  }\n  #graphql\n  fragment Customer on Customer {\n    id\n    firstName\n    lastName\n    displayName\n    emailAddress {\n      emailAddress\n    }\n    defaultAddress {\n      ...Address\n    }\n    addresses(first: 50) {\n      nodes {\n        ...Address\n      }\n    }\n  }\n  fragment Address on CustomerAddress {\n    id\n    formatted\n    firstName\n    lastName\n    company\n    address1\n    address2\n    territoryCode\n    zoneCode\n    city\n    zip\n    phoneNumber\n  }\n\n': {
     return: CustomerDetailsQuery;
     variables: CustomerDetailsQueryVariables;
   };
-  '#graphql\n  fragment OrderMoney on MoneyV2 {\n    amount\n    currencyCode\n  }\n  fragment DiscountApplication on DiscountApplication {\n    value {\n      __typename\n      ... on MoneyV2 {\n        ...OrderMoney\n      }\n      ... on PricingPercentageValue {\n        percentage\n      }\n    }\n  }\n  fragment OrderLineItemFull on LineItem {\n    id\n    title\n    quantity\n    price {\n      ...OrderMoney\n    }\n    discountAllocations {\n      allocatedAmount {\n        ...OrderMoney\n      }\n      discountApplication {\n        ...DiscountApplication\n      }\n    }\n    totalDiscount {\n      ...OrderMoney\n    }\n    image {\n      altText\n      height\n      url\n      id\n      width\n    }\n    variantTitle\n  }\n  fragment Order on Order {\n    id\n    name\n    confirmationNumber\n    statusPageUrl\n    fulfillmentStatus\n    processedAt\n    fulfillments(first: 1) {\n      nodes {\n        status\n      }\n    }\n    totalTax {\n      ...OrderMoney\n    }\n    totalPrice {\n      ...OrderMoney\n    }\n    subtotal {\n      ...OrderMoney\n    }\n    shippingAddress {\n      name\n      formatted(withName: true)\n      formattedArea\n    }\n    discountApplications(first: 100) {\n      nodes {\n        ...DiscountApplication\n      }\n    }\n    lineItems(first: 100) {\n      nodes {\n        ...OrderLineItemFull\n      }\n    }\n  }\n  query Order($orderId: ID!, $language: LanguageCode)\n    @inContext(language: $language) {\n    order(id: $orderId) {\n      ... on Order {\n        ...Order\n      }\n    }\n  }\n': {
+  '#graphql\n  fragment OrderMoney on MoneyV2 {\n    amount\n    currencyCode\n  }\n  fragment DiscountApplication on DiscountApplication {\n    value {\n      __typename\n      ... on MoneyV2 {\n        ...OrderMoney\n      }\n      ... on PricingPercentageValue {\n        percentage\n      }\n    }\n  }\n  fragment OrderLineItemFull on LineItem {\n    id\n    title\n    name\n    quantity\n    price {\n      ...OrderMoney\n    }\n    totalPrice {\n      ...OrderMoney\n    }\n    variantOptions {\n      name\n      value\n    }\n    discountAllocations {\n      allocatedAmount {\n        ...OrderMoney\n      }\n      discountApplication {\n        ...DiscountApplication\n      }\n    }\n    totalDiscount {\n      ...OrderMoney\n    }\n    image {\n      altText\n      height\n      url\n      id\n      width\n    }\n    variantTitle\n  }\n  fragment Order on Order {\n    id\n    name\n    confirmationNumber\n    statusPageUrl\n    financialStatus\n    fulfillmentStatus\n    processedAt\n    cancelledAt\n    totalShipping {\n      ...OrderMoney\n    }\n    discountInformation {\n      totalDiscounts {\n        ...OrderMoney\n      }\n    }\n    billingAddress {\n      name\n      formatted(withName: true)\n    }\n    fulfillments(first: 1) {\n      nodes {\n        status\n      }\n    }\n    totalTax {\n      ...OrderMoney\n    }\n    totalPrice {\n      ...OrderMoney\n    }\n    subtotal {\n      ...OrderMoney\n    }\n    shippingAddress {\n      name\n      formatted(withName: true)\n      formattedArea\n    }\n    discountApplications(first: 100) {\n      nodes {\n        ...DiscountApplication\n      }\n    }\n    lineItems(first: 100) {\n      nodes {\n        ...OrderLineItemFull\n      }\n    }\n  }\n  query Order($orderId: ID!, $language: LanguageCode)\n    @inContext(language: $language) {\n    order(id: $orderId) {\n      ... on Order {\n        ...Order\n      }\n    }\n  }\n': {
     return: OrderQuery;
     variables: OrderQueryVariables;
   };
@@ -579,7 +631,7 @@ interface GeneratedQueryTypes {
 }
 
 interface GeneratedMutationTypes {
-  '#graphql\n  mutation customerAddressUpdate(\n    $address: CustomerAddressInput!\n    $addressId: ID!\n    $defaultAddress: Boolean\n    $language: LanguageCode\n ) @inContext(language: $language) {\n    customerAddressUpdate(\n      address: $address\n      addressId: $addressId\n      defaultAddress: $defaultAddress\n    ) {\n      customerAddress {\n        id\n      }\n      userErrors {\n        code\n        field\n        message\n      }\n    }\n  }\n': {
+  '#graphql\n  mutation customerAddressUpdate(\n    $address: CustomerAddressInput\n    $addressId: ID!\n    $defaultAddress: Boolean\n    $language: LanguageCode\n ) @inContext(language: $language) {\n    customerAddressUpdate(\n      address: $address\n      addressId: $addressId\n      defaultAddress: $defaultAddress\n    ) {\n      customerAddress {\n        id\n      }\n      userErrors {\n        code\n        field\n        message\n      }\n    }\n  }\n': {
     return: CustomerAddressUpdateMutation;
     variables: CustomerAddressUpdateMutationVariables;
   };

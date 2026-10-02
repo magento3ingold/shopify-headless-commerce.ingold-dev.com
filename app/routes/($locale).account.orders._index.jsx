@@ -1,22 +1,28 @@
 import {
   Link,
   useLoaderData,
+  useLocation,
   useNavigation,
   useSearchParams,
 } from 'react-router';
 import {useRef} from 'react';
-import {
-  Money,
-  getPaginationVariables,
-  flattenConnection,
-} from '@shopify/hydrogen';
+import {getPaginationVariables} from '@shopify/hydrogen';
 import {
   buildOrderSearchQuery,
   parseOrderFilters,
   ORDER_FILTER_FIELDS,
 } from '~/lib/orderFilters';
 import {CUSTOMER_ORDERS_QUERY} from '~/graphql/customer-account/CustomerOrdersQuery';
-import {PaginatedResourceSection} from '~/components/PaginatedResourceSection';
+import {useLocalePath} from '~/lib/i18n';
+import {
+  ACCOUNT_BUTTON,
+  AccountEmptyState,
+  AccountPageHeader,
+} from '~/components/account/AccountLayout';
+import {OrderCard} from '~/components/account/OrderCard';
+
+/** Orders per page (one Customer Account API request per page). */
+const ORDERS_PER_PAGE = 10;
 
 /**
  * @type {Route.MetaFunction}
@@ -30,13 +36,18 @@ export const meta = () => {
  */
 export async function loader({request, context}) {
   const {customerAccount} = context;
+  // Reads `cursor` / `direction` from the URL (cursor pagination).
   const paginationVariables = getPaginationVariables(request, {
-    pageBy: 20,
+    pageBy: ORDERS_PER_PAGE,
   });
 
   const url = new URL(request.url);
   const filters = parseOrderFilters(url.searchParams);
   const query = buildOrderSearchQuery(filters);
+  const page = Math.max(
+    1,
+    Math.trunc(Number(url.searchParams.get('page'))) || 1,
+  );
 
   const {data, errors} = await customerAccount.query(CUSTOMER_ORDERS_QUERY, {
     variables: {
@@ -50,68 +61,144 @@ export async function loader({request, context}) {
     throw Error('Customer orders not found');
   }
 
-  return {customer: data.customer, filters};
+  return {customer: data.customer, filters, page};
 }
 
 export default function Orders() {
   /** @type {LoaderReturnData} */
-  const {customer, filters} = useLoaderData();
+  const {customer, filters, page} = useLoaderData();
   const {orders} = customer;
-
-  return (
-    <div className="orders">
-      <OrderSearchForm currentFilters={filters} />
-      <OrdersTable orders={orders} filters={filters} />
-    </div>
-  );
-}
-
-/**
- * @param {{
- *   orders: CustomerOrdersFragment['orders'];
- *   filters: OrderFilterParams;
- * }}
- */
-function OrdersTable({orders, filters}) {
   const hasFilters = !!(filters.name || filters.confirmationNumber);
 
   return (
-    <div className="acccount-orders" aria-live="polite">
-      {orders?.nodes.length ? (
-        <PaginatedResourceSection connection={orders}>
-          {({node: order}) => <OrderItem key={order.id} order={order} />}
-        </PaginatedResourceSection>
-      ) : (
-        <EmptyOrders hasFilters={hasFilters} />
-      )}
+    <div>
+      <AccountPageHeader
+        title="Orders"
+        description="Your order history, newest first."
+      />
+      <OrderSearchForm currentFilters={filters} />
+      <div aria-live="polite">
+        {orders?.nodes.length ? (
+          <>
+            <ul className="space-y-4">
+              {orders.nodes.map((order) => (
+                <li key={order.id}>
+                  <OrderCard order={order} />
+                </li>
+              ))}
+            </ul>
+            <OrdersPagination pageInfo={orders.pageInfo} page={page} />
+          </>
+        ) : (
+          <EmptyOrders hasFilters={hasFilters} />
+        )}
+      </div>
     </div>
   );
 }
 
 /**
- * @param {{hasFilters?: boolean}}
+ * Previous / Next over Shopify's cursors. The Customer Account API does not
+ * return a total order count, so numbered pages cannot be offered; the
+ * current page number is carried in the URL for orientation.
+ * @param {{
+ *   pageInfo: CustomerOrdersFragment['orders']['pageInfo'];
+ *   page: number;
+ * }}
  */
-function EmptyOrders({hasFilters = false}) {
+function OrdersPagination({pageInfo, page}) {
+  const location = useLocation();
+  const navigation = useNavigation();
+  const loading =
+    navigation.state === 'loading' &&
+    navigation.location?.pathname === location.pathname;
+
+  if (!pageInfo.hasPreviousPage && !pageInfo.hasNextPage) return null;
+
+  const linkTo = (direction) => {
+    const params = new URLSearchParams(location.search);
+    params.set('direction', direction);
+    params.set(
+      'cursor',
+      direction === 'next' ? pageInfo.endCursor : pageInfo.startCursor,
+    );
+    const nextPage = direction === 'next' ? page + 1 : page - 1;
+    if (nextPage > 1) params.set('page', String(nextPage));
+    else params.delete('page');
+    // Back on page 1: drop the cursor entirely.
+    if (direction === 'previous' && nextPage <= 1) {
+      params.delete('cursor');
+      params.delete('direction');
+    }
+    const search = params.toString();
+    return {pathname: location.pathname, search: search ? `?${search}` : ''};
+  };
+
   return (
-    <div>
-      {hasFilters ? (
-        <>
-          <p>No orders found matching your search.</p>
-          <br />
-          <p>
-            <Link to="/account/orders">Clear filters →</Link>
-          </p>
-        </>
+    <nav
+      aria-label="Orders pagination"
+      className="mt-8 flex items-center justify-between gap-4"
+      aria-busy={loading}
+    >
+      {pageInfo.hasPreviousPage ? (
+        <Link
+          to={linkTo('previous')}
+          preventScrollReset={false}
+          className={ACCOUNT_BUTTON.secondary}
+          rel="prev"
+        >
+          ← Previous
+        </Link>
       ) : (
-        <>
-          <p>You haven&apos;t placed any orders yet.</p>
-          <br />
-          <p>
-            <Link to="/collections">Start Shopping →</Link>
-          </p>
-        </>
+        <span />
       )}
-    </div>
+      <p className="text-sm text-muted" aria-current="page">
+        Page {page}
+      </p>
+      {pageInfo.hasNextPage ? (
+        <Link
+          to={linkTo('next')}
+          className={ACCOUNT_BUTTON.secondary}
+          rel="next"
+        >
+          Next →
+        </Link>
+      ) : (
+        <span />
+      )}
+    </nav>
+  );
+}
+
+/** @param {{hasFilters?: boolean}} */
+function EmptyOrders({hasFilters = false}) {
+  const localePath = useLocalePath();
+  return hasFilters ? (
+    <AccountEmptyState
+      title="No matching orders"
+      message="No orders match your search."
+      action={
+        <Link
+          to={localePath('/account/orders')}
+          className={ACCOUNT_BUTTON.secondary}
+        >
+          Clear search
+        </Link>
+      }
+    />
+  ) : (
+    <AccountEmptyState
+      title="No orders yet"
+      message="You haven't placed any orders yet."
+      action={
+        <Link
+          to={localePath('/collections/all')}
+          className={ACCOUNT_BUTTON.primary}
+        >
+          Continue Shopping
+        </Link>
+      }
+    />
   );
 }
 
@@ -121,7 +208,7 @@ function EmptyOrders({hasFilters = false}) {
  * }}
  */
 function OrderSearchForm({currentFilters}) {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [, setSearchParams] = useSearchParams();
   const navigation = useNavigation();
   const isSearching =
     navigation.state !== 'idle' &&
@@ -143,48 +230,59 @@ function OrderSearchForm({currentFilters}) {
     if (confirmationNumber)
       params.set(ORDER_FILTER_FIELDS.CONFIRMATION_NUMBER, confirmationNumber);
 
+    // A new search starts again at page 1.
     setSearchParams(params);
   };
 
   const hasFilters = currentFilters.name || currentFilters.confirmationNumber;
+  const inputClass =
+    'm-0 w-full min-w-0 rounded-lg border border-line bg-white px-4 py-2.5 text-sm text-ink focus:border-ink focus:outline-none';
 
   return (
     <form
       ref={formRef}
       onSubmit={handleSubmit}
-      className="order-search-form"
+      className="mb-6"
       aria-label="Search orders"
     >
-      <fieldset className="order-search-fieldset">
-        <legend className="order-search-legend">Filter Orders</legend>
-
-        <div className="order-search-inputs">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <label className="min-w-0 flex-1">
+          <span className="mb-1 block text-xs font-medium text-muted">
+            Order number
+          </span>
           <input
             type="search"
             name={ORDER_FILTER_FIELDS.NAME}
-            placeholder="Order #"
-            aria-label="Order number"
+            placeholder="e.g. 1001"
             defaultValue={currentFilters.name || ''}
-            className="order-search-input"
+            className={inputClass}
           />
+        </label>
+        <label className="min-w-0 flex-1">
+          <span className="mb-1 block text-xs font-medium text-muted">
+            Confirmation number
+          </span>
           <input
             type="search"
             name={ORDER_FILTER_FIELDS.CONFIRMATION_NUMBER}
-            placeholder="Confirmation #"
-            aria-label="Confirmation number"
+            placeholder="e.g. RD88M2ZRQ"
             defaultValue={currentFilters.confirmationNumber || ''}
-            className="order-search-input"
+            className={inputClass}
           />
-        </div>
-
-        <div className="order-search-buttons">
-          <button type="submit" disabled={isSearching}>
-            {isSearching ? 'Searching' : 'Search'}
+        </label>
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={isSearching}
+            className={ACCOUNT_BUTTON.secondary}
+          >
+            {isSearching ? 'Searching…' : 'Search'}
           </button>
-          {hasFilters && (
+          {hasFilters ? (
             <button
               type="button"
               disabled={isSearching}
+              className={ACCOUNT_BUTTON.secondary}
               onClick={() => {
                 setSearchParams(new URLSearchParams());
                 formRef.current?.reset();
@@ -192,44 +290,12 @@ function OrderSearchForm({currentFilters}) {
             >
               Clear
             </button>
-          )}
+          ) : null}
         </div>
-      </fieldset>
+      </div>
     </form>
   );
 }
-
-/**
- * @param {{order: OrderItemFragment}}
- */
-function OrderItem({order}) {
-  const fulfillmentStatus = flattenConnection(order.fulfillments)[0]?.status;
-  return (
-    <>
-      <fieldset>
-        <Link to={`/account/orders/${btoa(order.id)}`}>
-          <strong>#{order.number}</strong>
-        </Link>
-        <p>{new Date(order.processedAt).toDateString()}</p>
-        {order.confirmationNumber && (
-          <p>Confirmation: {order.confirmationNumber}</p>
-        )}
-        <p>{order.financialStatus}</p>
-        {fulfillmentStatus && <p>{fulfillmentStatus}</p>}
-        <Money data={order.totalPrice} />
-        <Link to={`/account/orders/${btoa(order.id)}`}>View Order →</Link>
-      </fieldset>
-      <br />
-    </>
-  );
-}
-
-/**
- * @typedef {{
- *   customer: CustomerOrdersFragment;
- *   filters: OrderFilterParams;
- * }} OrdersLoaderData
- */
 
 /** @typedef {import('./+types/account.orders._index').Route} Route */
 /** @typedef {import('~/lib/orderFilters').OrderFilterParams} OrderFilterParams */

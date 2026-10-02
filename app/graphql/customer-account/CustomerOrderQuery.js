@@ -18,9 +18,17 @@ export const CUSTOMER_ORDER_QUERY = `#graphql
   fragment OrderLineItemFull on LineItem {
     id
     title
+    name
     quantity
     price {
       ...OrderMoney
+    }
+    totalPrice {
+      ...OrderMoney
+    }
+    variantOptions {
+      name
+      value
     }
     discountAllocations {
       allocatedAmount {
@@ -47,8 +55,22 @@ export const CUSTOMER_ORDER_QUERY = `#graphql
     name
     confirmationNumber
     statusPageUrl
+    financialStatus
     fulfillmentStatus
     processedAt
+    cancelledAt
+    totalShipping {
+      ...OrderMoney
+    }
+    discountInformation {
+      totalDiscounts {
+        ...OrderMoney
+      }
+    }
+    billingAddress {
+      name
+      formatted(withName: true)
+    }
     fulfillments(first: 1) {
       nodes {
         status

@@ -1,5 +1,9 @@
 import {CUSTOMER_UPDATE_MUTATION} from '~/graphql/customer-account/CustomerUpdateMutation';
 import {
+  ACCOUNT_BUTTON,
+  AccountPageHeader,
+} from '~/components/account/AccountLayout';
+import {
   data,
   Form,
   useActionData,
@@ -62,6 +66,12 @@ export async function action({request, context}) {
       throw new Error(errors[0].message);
     }
 
+    if (data?.customerUpdate?.userErrors?.length) {
+      throw new Error(
+        data.customerUpdate.userErrors.map((error) => error.message).join(' '),
+      );
+    }
+
     if (!data?.customerUpdate?.customer) {
       throw new Error('Customer profile update failed.');
     }
@@ -86,50 +96,87 @@ export default function AccountProfile() {
   /** @type {ActionReturnData} */
   const action = useActionData();
   const customer = action?.customer ?? account?.customer;
+  const email =
+    account?.customer?.emailAddress?.emailAddress ??
+    customer?.emailAddress?.emailAddress;
+  const saving = state !== 'idle';
 
   return (
-    <div className="account-profile">
-      <h2>My profile</h2>
-      <br />
-      <Form method="PUT">
-        <legend>Personal information</legend>
-        <fieldset>
-          <label htmlFor="firstName">First name</label>
-          <input
+    <div>
+      <AccountPageHeader
+        title="Profile"
+        description="Your personal information."
+      />
+      <Form method="PUT" className="max-w-xl space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <ProfileField
             id="firstName"
-            name="firstName"
-            type="text"
+            label="First name"
             autoComplete="given-name"
-            placeholder="First name"
-            aria-label="First name"
-            defaultValue={customer.firstName ?? ''}
-            minLength={2}
+            defaultValue={customer?.firstName ?? ''}
           />
-          <label htmlFor="lastName">Last name</label>
-          <input
+          <ProfileField
             id="lastName"
-            name="lastName"
-            type="text"
+            label="Last name"
             autoComplete="family-name"
-            placeholder="Last name"
-            aria-label="Last name"
-            defaultValue={customer.lastName ?? ''}
-            minLength={2}
+            defaultValue={customer?.lastName ?? ''}
           />
-        </fieldset>
-        {action?.error ? (
-          <p>
-            <mark>
-              <small>{action.error}</small>
-            </mark>
+        </div>
+        <div>
+          <p className="mb-1.5 block text-sm font-semibold text-ink">Email</p>
+          <p className="rounded-lg border border-line bg-surface px-4 py-2.5 text-base break-all text-ink">
+            {email || '—'}
           </p>
-        ) : (
-          <br />
-        )}
-        <button type="submit" disabled={state !== 'idle'}>
-          {state !== 'idle' ? 'Updating' : 'Update'}
+          <p className="mt-1.5 text-xs text-muted">
+            Your sign-in email is managed by your Shopify customer account and
+            can&apos;t be changed here.
+          </p>
+        </div>
+
+        {action?.error ? (
+          <p role="alert" className="text-sm text-sale">
+            {action.error}
+          </p>
+        ) : action?.customer && !saving ? (
+          <p role="status" className="text-sm text-success">
+            Your profile was updated.
+          </p>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className={ACCOUNT_BUTTON.primary}
+        >
+          {saving ? 'Saving…' : 'Save changes'}
         </button>
       </Form>
+    </div>
+  );
+}
+
+/**
+ * @param {{id: string; label: string; autoComplete: string; defaultValue: string}}
+ */
+function ProfileField({id, label, autoComplete, defaultValue}) {
+  return (
+    <div>
+      <label
+        htmlFor={id}
+        className="mb-1.5 block text-sm font-semibold text-ink"
+      >
+        {label}
+      </label>
+      <input
+        id={id}
+        name={id}
+        type="text"
+        autoComplete={autoComplete}
+        defaultValue={defaultValue}
+        minLength={2}
+        maxLength={255}
+        className="m-0 block w-full rounded-lg border border-line bg-white px-4 py-2.5 text-base text-ink focus:border-ink focus:outline-none"
+      />
     </div>
   );
 }
