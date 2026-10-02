@@ -9,8 +9,8 @@
  *   hard-coded.
  * - Public reads return only approved reviews of one product (matched by
  *   Product ID), mapped to `PublicReview` without the customer email.
- * - New reviews are always created with Status = pending, Verified Buyer =
- *   false and a server timestamp; the browser cannot set them.
+ * - New reviews are always created with the "pending" status and a server
+ *   timestamp; the browser cannot set either.
  * - Public data is cached briefly (see REVIEW_CACHE) so an approval in
  *   Shopify Admin appears within about two minutes, without a deployment.
  */
@@ -36,18 +36,30 @@ const FIELD_NAMES = /** @type {const} */ ({
   rating: 'Rating',
   title: 'Review Title',
   text: 'Review Text',
-  verifiedBuyer: 'Verified Buyer',
   status: 'Status',
   createdAt: 'Created At',
 });
 
+/**
+ * Review states, matched against the definition's Status choices by meaning
+ * (case-insensitive), e.g. "Pending" / "Approve" / "Approved" / "Rejected".
+ * Without a choice list the lowercase defaults are stored.
+ */
 const STATUS = /** @type {const} */ ({
-  pending: 'pending',
-  approved: 'approved',
+  pending: {default: 'pending', match: /^pending$/},
+  approved: {default: 'approved', match: /^approved?$/},
+  rejected: {default: 'rejected', match: /^reject(ed)?$/},
 });
 
 /** Approved reviews summarised per product (8 Admin pages of 250). */
 const MAX_SCANNED_REVIEWS = 2000;
+
+/**
+ * Entries examined when Product ID / Status are not filterable in the
+ * definition, so Shopify cannot filter by product: every review is scanned
+ * (only id, product, status and rating; never customer data).
+ */
+const MAX_SCANNED_ENTRIES_UNFILTERED = 2000;
 
 /** Approved review data: ≤ 60 s fresh, ≤ 60 s more while revalidating. */
 const REVIEW_CACHE = CacheCustom({
@@ -60,6 +72,8 @@ const DEFINITION_CACHE = CacheCustom({
   maxAge: 300,
   staleWhileRevalidate: 600,
 });
+
+let warnedUnfilterable = false;
 
 export class ReviewConfigError extends Error {
   name = 'ReviewConfigError';
@@ -99,9 +113,6 @@ export async function loadProductReviews(context, {productId, sort, page}) {
   }
 
   try {
-    if (definition.readProblem) {
-      throw new ReviewConfigError(definition.readProblem);
-    }
     const ratings = await getApprovedRatings(context, definition, productId);
     const reviewPage = await getReviewPage(context, definition, ratings, {
       productId,
@@ -177,15 +188,19 @@ async function getApprovedRatings(context, definition, productId) {
     },
     async () => {
       const {keys} = definition;
-      const query = [
-        `fields.${keys.productId}:${quoteSearch(productId)}`,
-        `fields.${keys.status}:${quoteSearch(definition.statusValues.approved)}`,
-      ].join(' AND ');
+      // Filtered by Shopify when possible; otherwise filtered below.
+      const query = definition.filterable
+        ? [
+            `fields.${keys.productId}:${quoteSearch(productId)}`,
+            `fields.${keys.status}:${quoteSearch(definition.statusValues.approved)}`,
+          ].join(' AND ')
+        : null;
 
       /** @type {Array<{id: string; rating: number; order: number}>} */
       const items = [];
       let after = null;
       let truncated = false;
+      let scanned = 0;
       do {
         const data = await adminGraphql(
           getAdminApiConfig(context.env),
@@ -200,13 +215,18 @@ async function getApprovedRatings(context, definition, productId) {
           },
         );
         const {nodes, pageInfo} = data.metaobjects;
+        scanned += nodes.length;
         for (const node of nodes) {
           if (!isApprovedFor(node, definition, productId)) continue;
           const rating = parseRating(node.rating?.value, definition);
           if (rating) items.push({id: node.id, rating, order: items.length});
         }
         after = pageInfo.hasNextPage ? pageInfo.endCursor : null;
-        if (after && items.length >= MAX_SCANNED_REVIEWS) {
+        if (
+          after &&
+          (items.length >= MAX_SCANNED_REVIEWS ||
+            (!query && scanned >= MAX_SCANNED_ENTRIES_UNFILTERED))
+        ) {
           truncated = true;
           after = null;
         }
@@ -256,7 +276,6 @@ async function getReviewPage(context, definition, ratings, args) {
               nameKey: keys.customerName,
               titleKey: keys.title,
               textKey: keys.text,
-              verifiedKey: keys.verifiedBuyer,
               createdAtKey: keys.createdAt,
             },
           );
@@ -288,11 +307,10 @@ function toPublicReview(node, definition) {
   if (!rating) return null;
   return {
     id: node.id,
-    customerName: cleanText(node.name?.value, 80) || 'Customer',
+    customerName: cleanText(node.name?.value, 100) || 'Customer',
     rating,
-    reviewTitle: cleanText(node.title?.value, 200),
-    reviewText: cleanText(node.text?.value, 6000, true),
-    verifiedBuyer: node.verified?.value === 'true',
+    reviewTitle: cleanText(node.title?.value, 150),
+    reviewText: cleanText(node.text?.value, 5000, true),
     createdAt:
       validDate(node.reviewCreatedAt?.value) ?? validDate(node.createdAt),
   };
@@ -349,7 +367,6 @@ export async function createPendingReview(context, review) {
     title: review.title,
     text: review.body,
     // Set by the server only.
-    verifiedBuyer: false,
     status: definition.statusValues.pending,
     createdAt: new Date(),
   };
@@ -363,6 +380,12 @@ export async function createPendingReview(context, review) {
       type: definition.type,
       handle: `review-${review.submissionId}`,
       fields,
+      // Never published: drafts are not readable through the Storefront API
+      // even when the definition allows storefront access. The storefront
+      // reads reviews only through the Admin API on the server.
+      ...(definition.publishable && {
+        capabilities: {publishable: {status: 'DRAFT'}},
+      }),
     },
   });
   const {metaobject, userErrors} = data.metaobjectCreate;
@@ -390,7 +413,6 @@ function encodeValue(definition, field, value) {
   switch (type) {
     case 'single_line_text_field':
     case 'multi_line_text_field':
-      if (field === 'verifiedBuyer') return value ? 'true' : 'false';
       if (field === 'createdAt') return isoSeconds(value);
       return String(value);
     case 'number_integer':
@@ -489,27 +511,31 @@ export function resolveDefinition(raw) {
   const notFilterable = ['productId', 'status'].filter(
     (field) => !fieldOf(field).capabilities?.adminFilterable?.enabled,
   );
-  // Needed to read approved reviews per product; creating reviews works
-  // without it.
-  const readProblem = notFilterable.length
-    ? `Enable the Admin filter for: ${notFilterable
+  // With both filterable, Shopify returns only this product's approved
+  // reviews; otherwise reviews are scanned (bounded) and filtered here.
+  const filterable = notFilterable.length === 0;
+  if (!filterable && !warnedUnfilterable) {
+    warnedUnfilterable = true;
+    console.warn(
+      `[reviews] For efficient review loading, enable the Admin filter for: ${notFilterable
         .map((field) => FIELD_NAMES[field])
-        .join(', ')}`
-    : null;
+        .join(', ')}`,
+    );
+  }
 
   // Status: use the definition's own choice values when it has a list.
   const statusChoices = parseChoices(fieldOf('status').validations);
   const statusValues = {};
-  for (const [state, value] of Object.entries(STATUS)) {
+  for (const [state, {default: fallback, match}] of Object.entries(STATUS)) {
     const choice = statusChoices
-      ? statusChoices.find((option) => normalise(option) === value)
-      : value;
-    if (!choice) {
+      ? statusChoices.find((option) => match.test(normalise(option)))
+      : fallback;
+    if (!choice && state !== 'rejected') {
       throw new ReviewConfigError(
-        `Status choices must include "${value}" (found: ${statusChoices.join(', ')})`,
+        `Status choices need a "${state}" value (found: ${statusChoices.join(', ')})`,
       );
     }
-    statusValues[state] = choice;
+    statusValues[state] = choice ?? null;
   }
 
   const ratingScale = {min: 1, max: 5};
@@ -535,7 +561,8 @@ export function resolveDefinition(raw) {
     statusValues,
     statusChoices,
     ratingScale,
-    readProblem,
+    filterable,
+    publishable: Boolean(raw.capabilities?.publishable?.enabled),
   };
 }
 
@@ -612,10 +639,11 @@ function cleanText(value, max, multiline = false) {
  *   type: string;
  *   keys: Record<keyof typeof FIELD_NAMES, string>;
  *   fieldTypes: Record<keyof typeof FIELD_NAMES, string>;
- *   statusValues: {pending: string; approved: string};
+ *   statusValues: {pending: string; approved: string; rejected: string | null};
  *   statusChoices: string[] | null;
  *   ratingScale: {min: number; max: number};
- *   readProblem: string | null;
+ *   filterable: boolean;
+ *   publishable: boolean;
  * }} ReviewDefinition
  */
 /**

@@ -131,8 +131,20 @@ async function getAccessToken(config, fetchImpl) {
   );
 
   if (!response.ok) {
+    // Shopify answers with JSON ({error}) or an HTML page ("Oauth error
+    // app_not_installed"). Only that error code is reported, never the
+    // request body or credentials.
+    const text = await response.text().catch(() => '');
+    let reason = '';
+    try {
+      reason = JSON.parse(text).error ?? '';
+    } catch {
+      reason = text.match(/Oauth error ([a-z_]+)/i)?.[1] ?? '';
+    }
     throw new AdminApiError(
-      `Admin API token request failed with HTTP ${response.status}`,
+      `Admin API token request failed with HTTP ${response.status}${
+        /^[a-z_]{1,64}$/i.test(reason) ? ` (${reason})` : ''
+      }`,
     );
   }
 

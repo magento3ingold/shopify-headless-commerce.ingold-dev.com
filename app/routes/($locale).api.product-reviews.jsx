@@ -17,8 +17,9 @@ import {CUSTOMER_REVIEW_PREFILL_QUERY} from '~/graphql/customer-account/Customer
  *   -> the signed-in customer's own name/email for the review form (private)
  * POST (form data) -> creates a pending "Custom Product Review" entry
  *
- * Product identity is verified against the Storefront API, and status,
- * verified-buyer and the timestamp are set on the server only.
+ * Product identity is verified against the Storefront API (the submitted
+ * product id must be the id of the submitted product handle), and the status
+ * and timestamp are set on the server only.
  */
 
 const NO_STORE = {'Cache-Control': 'private, no-store'};
@@ -132,8 +133,7 @@ export async function action({context, request}) {
     return data(
       {
         ok: false,
-        message:
-          'Sorry, your review could not be submitted. Please try again later.',
+        message: "We couldn't submit your review. Please try again.",
       },
       {status: 502, headers: NO_STORE},
     );

@@ -18,6 +18,11 @@ export const REVIEW_DEFINITIONS_QUERY = `#graphql
       nodes {
         type
         name
+        capabilities {
+          publishable {
+            enabled
+          }
+        }
         fieldDefinitions {
           key
           name
@@ -45,11 +50,13 @@ export const REVIEW_DEFINITIONS_QUERY = `#graphql
 `;
 
 // Approved reviews of one product, newest first, with only the fields
-// needed for the summary and sorting (no customer data).
+// needed for the summary and sorting (no customer data). `query` filters by
+// product and status when those fields are filterable; without it every
+// entry is scanned (bounded) and filtered on the server.
 export const REVIEW_RATINGS_QUERY = `#graphql
   query ReviewRatings(
     $type: String!
-    $query: String!
+    $query: String
     $after: String
     $productKey: String!
     $statusKey: String!
@@ -94,7 +101,6 @@ export const REVIEW_ENTRIES_QUERY = `#graphql
     $nameKey: String!
     $titleKey: String!
     $textKey: String!
-    $verifiedKey: String!
     $createdAtKey: String!
   ) {
     nodes(ids: $ids) {
@@ -117,9 +123,6 @@ export const REVIEW_ENTRIES_QUERY = `#graphql
           value
         }
         text: field(key: $textKey) {
-          value
-        }
-        verified: field(key: $verifiedKey) {
           value
         }
         reviewCreatedAt: field(key: $createdAtKey) {

@@ -11,11 +11,11 @@ import {
 import {ProductPrice} from '~/components/ProductPrice';
 import {ProductGallery} from '~/components/ProductGallery';
 import {ProductForm} from '~/components/ProductForm';
+import {ProductReviews} from '~/components/reviews/ProductReviews';
 import {
-  ProductReviews,
-  ReviewSummaryLink,
-  ReviewSummaryPlaceholder,
-} from '~/components/ProductReviews';
+  ProductRatingSummary,
+  ProductRatingSummaryPlaceholder,
+} from '~/components/reviews/ProductRatingSummary';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 import {loadProductReviews} from '~/lib/product-reviews.server';
 
@@ -136,9 +136,9 @@ export default function Product() {
             <h1 className="font-display text-3xl leading-tight font-medium text-ink md:text-4xl">
               {title}
             </h1>
-            <Suspense fallback={<ReviewSummaryPlaceholder />}>
+            <Suspense fallback={<ProductRatingSummaryPlaceholder />}>
               <Await resolve={reviews} errorElement={null}>
-                {(result) => <ReviewSummaryLink result={result} />}
+                {(result) => <ProductRatingSummary result={result} />}
               </Await>
             </Suspense>
             <div className="mt-4 text-lg">

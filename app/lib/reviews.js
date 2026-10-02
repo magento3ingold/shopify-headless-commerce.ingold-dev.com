@@ -7,6 +7,12 @@
  * email) and the summary below.
  */
 
+/** Anchor of the reviews section on the product page. */
+export const REVIEWS_SECTION_ID = 'product-reviews';
+
+/** Server route for review pages, prefill and submissions. */
+export const REVIEWS_API_PATH = '/api/product-reviews';
+
 /** Review sort orders (all applied across every approved review). */
 export const REVIEW_SORTS = /** @type {const} */ ([
   {value: 'recent', label: 'Most recent'},
@@ -19,9 +25,9 @@ export const REVIEWS_PER_PAGE = 10;
 
 /** Submission limits (enforced on the server; mirrored in the form). */
 export const REVIEW_LIMITS = /** @type {const} */ ({
-  name: 80,
+  name: 100,
   email: 254,
-  title: 120,
+  title: 150,
   text: 5000,
 });
 
@@ -125,7 +131,6 @@ export function describeRating({averageRating, reviewCount}) {
  *   rating: number;
  *   reviewTitle: string;
  *   reviewText: string;
- *   verifiedBuyer: boolean;
  *   createdAt: string | null;
  * }} PublicReview
  */
