@@ -1,0 +1,7 @@
+# Shopify Hydrogen codegen (`shopify hydrogen codegen`, run by `npm run build`)
+# always writes these files with LF line endings. Keep them LF in every
+# checkout so a build never leaves them looking modified (e.g. on Windows with
+# core.autocrlf=true), which would block the clean-tree checks in
+# scripts/claude-auto-push.ps1 and scripts/claude-push-main.ps1.
+customer-accountapi.generated.d.ts text eol=lf
+storefrontapi.generated.d.ts text eol=lf
