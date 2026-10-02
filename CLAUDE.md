@@ -35,5 +35,28 @@ Rules:
 19. Claude must NOT perform the `develop` -> `main` merge automatically unless
     the user explicitly asks for that specific Production release.
 
-Pushing is never automatic: there is no Stop hook, and finishing a task does
-not push. Push happens only when the user explicitly runs `/safe-push`.
+### Commands
+
+- `/safe-push` = development deployment = `develop` only = Oxygen Preview.
+  Runs `powershell -ExecutionPolicy Bypass -File .\scripts\claude-auto-push.ps1`.
+- `/push-main-branch` = explicit Production promotion = `develop` -> `main` =
+  Oxygen Production. Runs
+  `powershell -ExecutionPolicy Bypass -File .\scripts\claude-push-main.ps1`.
+
+### Production release rules (`/push-main-branch`)
+
+1. Claude must NEVER invoke `/push-main-branch` automatically.
+2. Only the user may explicitly initiate `/push-main-branch`.
+3. The Oxygen Preview must be tested and approved before the user invokes it.
+4. `/push-main-branch` must use `scripts/claude-push-main.ps1`.
+5. Never bypass the Production script with direct Git commands.
+6. Never force push.
+7. Never automatically resolve merge conflicts.
+8. Never include uncommitted changes in a Production release (a dirty working
+   tree cancels it).
+9. After a successful Production release, return to `develop`.
+
+Pushing is never automatic: there are no hooks (Stop, PostToolUse, Git hooks
+or other lifecycle events), and finishing a task does not push. `develop` is
+pushed only when the user runs `/safe-push`; `main` is pushed only when the
+user runs `/push-main-branch`.

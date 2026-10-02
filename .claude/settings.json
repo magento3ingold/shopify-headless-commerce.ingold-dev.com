@@ -2,7 +2,8 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "permissions": {
     "allow": [
-      "PowerShell(powershell -ExecutionPolicy Bypass -File .\\scripts\\claude-auto-push.ps1)"
+      "PowerShell(powershell -ExecutionPolicy Bypass -File .\\scripts\\claude-auto-push.ps1)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File .\\scripts\\claude-push-main.ps1)"
     ],
     "deny": [
       "Bash(git push:*)",
