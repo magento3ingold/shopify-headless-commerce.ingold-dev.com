@@ -109,7 +109,7 @@ export function ReviewSummaryPlaceholder() {
 /* ----------------------------- Reviews section ----------------------------- */
 
 /**
- * Customer reviews: summary, distribution, "Write a review" and approved
+ * Customer reviews: summary, distribution, "Write a Review" and approved
  * reviews (10 at a time). All numbers come from approved reviews only.
  * @param {{
  *   product: {id: string; handle: string; title: string};
@@ -150,6 +150,20 @@ export function ProductReviews({product, result}) {
     );
 
   const available = result?.status === 'ok';
+  // Zero reviews is "ok". Writing stays possible when only reading failed.
+  const canSubmit = Boolean(result?.canSubmit);
+
+  const writeReviewButton = (
+    <button
+      ref={writeButton}
+      type="button"
+      onClick={() => setFormOpen(true)}
+      aria-haspopup="dialog"
+      className="mt-8 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-ink px-8 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-ink-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:w-auto"
+    >
+      Write a Review
+    </button>
+  );
   const summary = available ? result.summary : null;
   const count = summary?.reviewCount ?? 0;
   const loadFailed = fetcher.state === 'idle' && fetcher.data?.ok === false;
@@ -169,10 +183,21 @@ export function ProductReviews({product, result}) {
 
       {!result ? (
         <p className="mt-6 text-sm text-muted">Loading reviews…</p>
+      ) : !available && canSubmit ? (
+        <div className="mt-6">
+          <p role="status" className="text-sm text-muted">
+            Reviews could not be loaded right now. You can still write a review.
+          </p>
+          {writeReviewButton}
+        </div>
       ) : !available ? (
-        <p className="mt-6 text-sm text-muted">
-          Reviews are currently unavailable. Please check back later.
-        </p>
+        <div className="mt-6 space-y-1 text-sm text-muted">
+          <p>Customer reviews are not available at the moment.</p>
+          <p>
+            Submitting a review is not possible right now. Please try again
+            later.
+          </p>
+        </div>
       ) : (
         <div className="mt-8 grid gap-10 lg:grid-cols-[18rem_minmax(0,1fr)] lg:gap-16">
           <div>
@@ -195,15 +220,7 @@ export function ProductReviews({product, result}) {
                 No reviews yet. Be the first to review this product.
               </p>
             )}
-            <button
-              ref={writeButton}
-              type="button"
-              onClick={() => setFormOpen(true)}
-              aria-haspopup="dialog"
-              className="mt-8 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-ink px-8 py-3 text-sm font-semibold text-white transition-colors duration-200 hover:bg-ink-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:w-auto"
-            >
-              Write a review
-            </button>
+            {writeReviewButton}
           </div>
 
           <div>
@@ -262,7 +279,7 @@ export function ProductReviews({product, result}) {
         </div>
       )}
 
-      {available ? (
+      {canSubmit ? (
         <ReviewFormDialog
           product={product}
           open={formOpen}
@@ -462,7 +479,7 @@ function ReviewFormDialog({product, open, onClose}) {
       <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4 md:px-8">
         <div>
           <h2 id={`${ids}-title`} className="text-lg font-semibold text-ink">
-            Write a review
+            Write a Review
           </h2>
           <p className="mt-0.5 text-sm text-muted">{product.title}</p>
         </div>

@@ -74,18 +74,34 @@ export function isReviewSystemConfigured(env) {
 
 /**
  * Summary, distribution and one page of approved reviews for a product.
- * Never throws: on any problem the product page shows reviews as
- * unavailable.
+ * Never throws. `canSubmit` tells the page whether new reviews can be
+ * written: true whenever the Admin API and the definition are usable, even
+ * if reading reviews failed (zero reviews is a normal "ok" result).
  * @param {ReviewContext} context
  * @param {{productId: string; sort?: string | null; page?: number | string | null}} args
  * @return {Promise<ProductReviewsResult>}
  */
 export async function loadProductReviews(context, {productId, sort, page}) {
   if (!isReviewSystemConfigured(context.env)) {
-    return {status: 'unavailable', reason: 'NOT_CONFIGURED'};
+    return {status: 'unavailable', reason: 'NOT_CONFIGURED', canSubmit: false};
   }
+
+  let definition;
   try {
-    const definition = await getReviewDefinition(context);
+    definition = await getReviewDefinition(context);
+  } catch (error) {
+    console.error('[reviews] review definition unavailable:', error);
+    return {
+      status: 'unavailable',
+      reason: error instanceof ReviewConfigError ? 'CONFIG' : 'ERROR',
+      canSubmit: false,
+    };
+  }
+
+  try {
+    if (definition.readProblem) {
+      throw new ReviewConfigError(definition.readProblem);
+    }
     const ratings = await getApprovedRatings(context, definition, productId);
     const reviewPage = await getReviewPage(context, definition, ratings, {
       productId,
@@ -98,12 +114,15 @@ export async function loadProductReviews(context, {productId, sort, page}) {
       page: reviewPage,
       // More approved reviews exist than were summarised.
       truncated: ratings.truncated,
+      canSubmit: true,
     };
   } catch (error) {
     console.error('[reviews] could not load product reviews:', error);
     return {
       status: 'unavailable',
       reason: error instanceof ReviewConfigError ? 'CONFIG' : 'ERROR',
+      // Writing does not depend on reading.
+      canSubmit: true,
     };
   }
 }
@@ -470,13 +489,13 @@ export function resolveDefinition(raw) {
   const notFilterable = ['productId', 'status'].filter(
     (field) => !fieldOf(field).capabilities?.adminFilterable?.enabled,
   );
-  if (notFilterable.length) {
-    throw new ReviewConfigError(
-      `Enable "Filter in Admin" for: ${notFilterable
+  // Needed to read approved reviews per product; creating reviews works
+  // without it.
+  const readProblem = notFilterable.length
+    ? `Enable the Admin filter for: ${notFilterable
         .map((field) => FIELD_NAMES[field])
-        .join(', ')}`,
-    );
-  }
+        .join(', ')}`
+    : null;
 
   // Status: use the definition's own choice values when it has a list.
   const statusChoices = parseChoices(fieldOf('status').validations);
@@ -516,6 +535,7 @@ export function resolveDefinition(raw) {
     statusValues,
     statusChoices,
     ratingScale,
+    readProblem,
   };
 }
 
@@ -595,6 +615,7 @@ function cleanText(value, max, multiline = false) {
  *   statusValues: {pending: string; approved: string};
  *   statusChoices: string[] | null;
  *   ratingScale: {min: number; max: number};
+ *   readProblem: string | null;
  * }} ReviewDefinition
  */
 /**
@@ -604,7 +625,12 @@ function cleanText(value, max, multiline = false) {
  *       summary: import('~/lib/reviews').ReviewSummary;
  *       page: import('~/lib/reviews').ReviewPage;
  *       truncated: boolean;
+ *       canSubmit: true;
  *     }
- *   | {status: 'unavailable'; reason: 'NOT_CONFIGURED' | 'CONFIG' | 'ERROR'}
+ *   | {
+ *       status: 'unavailable';
+ *       reason: 'NOT_CONFIGURED' | 'CONFIG' | 'ERROR';
+ *       canSubmit: boolean;
+ *     }
  * )} ProductReviewsResult
  */

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "PowerShell(powershell -ExecutionPolicy Bypass -File .\\scripts\\claude-auto-push.ps1)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git checkout main:*)",
+      "Bash(git switch main:*)",
+      "Bash(git merge develop:*)",
+      "Bash(git rebase:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git commit --amend:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git remote set-url:*)",
+      "Bash(git remote remove:*)",
+      "PowerShell(git push:*)",
+      "PowerShell(git checkout main:*)",
+      "PowerShell(git switch main:*)",
+      "PowerShell(git merge develop:*)",
+      "PowerShell(git rebase:*)",
+      "PowerShell(git reset --hard:*)",
+      "PowerShell(git commit --amend:*)",
+      "PowerShell(git filter-branch:*)",
+      "PowerShell(git remote add:*)",
+      "PowerShell(git remote set-url:*)",
+      "PowerShell(git remote remove:*)"
+    ]
+  }
+}
