@@ -1,75 +1,106 @@
 /**
- * Product review data contract shared by the server and the UI.
+ * Product review contract and validation shared by the server and the UI.
  *
- * Rating summary: Shopify's standard product review metafields
- * `reviews.rating` (type `rating`) and `reviews.rating_count` (integer).
- * Review apps (Shopify Product Reviews, Judge.me, Yotpo, Okendo, Loox,
- * Stamped, ...) can sync their totals into these, and they are read through
- * the Storefront API with the product, so no extra request is needed. The
- * metafields must be exposed to the Storefront API (Settings → Custom data →
- * Products → definition → Storefront access).
- *
- * Individual reviews: Shopify stores none, so they come from a review
- * provider's API (see reviews.server.js).
+ * Reviews are "Custom Product Review" metaobjects, read and written only on
+ * the server through the Admin API (see product-reviews.server.js). The
+ * browser only ever receives `PublicReview` objects (never the customer
+ * email) and the summary below.
  */
 
-/** Review sort orders a provider may support. */
+/** Review sort orders (all applied across every approved review). */
 export const REVIEW_SORTS = /** @type {const} */ ([
   {value: 'recent', label: 'Most recent'},
   {value: 'highest', label: 'Highest rated'},
   {value: 'lowest', label: 'Lowest rated'},
 ]);
 
-/** Reviews per page requested from a provider. */
-export const REVIEWS_PER_PAGE = 5;
+/** Reviews per page / per "Load more". */
+export const REVIEWS_PER_PAGE = 10;
+
+/** Submission limits (enforced on the server; mirrored in the form). */
+export const REVIEW_LIMITS = /** @type {const} */ ({
+  name: 80,
+  email: 254,
+  title: 120,
+  text: 5000,
+});
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const SUBMISSION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PRODUCT_GID = /^gid:\/\/shopify\/Product\/\d+$/;
 
 /**
- * Storefront API fields for the rating summary; spread into the product.
+ * Validates a submitted review. Returns the cleaned values, or field errors.
+ * @param {Record<string, unknown>} input raw form values
+ * @return {{ok: true; value: ReviewSubmission} | {ok: false; errors: Record<string, string>}}
  */
-export const PRODUCT_REVIEW_SUMMARY_FRAGMENT = `#graphql
-  fragment ProductReviewSummary on Product {
-    reviewRating: metafield(namespace: "reviews", key: "rating") {
-      value
-    }
-    reviewCount: metafield(namespace: "reviews", key: "rating_count") {
-      value
-    }
+export function validateReviewInput(input) {
+  const text = (key) =>
+    typeof input[key] === 'string'
+      ? input[key].replace(/\r\n/g, '\n').trim()
+      : '';
+  const errors = {};
+
+  const ratingRaw = text('rating');
+  const rating = Number(ratingRaw);
+  if (!/^[1-5]$/.test(ratingRaw) || !Number.isInteger(rating)) {
+    errors.rating = 'Please choose a rating from 1 to 5 stars.';
   }
-`;
 
-/**
- * Average rating (normalised to a 0–5 scale) and review count from the
- * standard review metafields, or null when they are missing or invalid.
- * Never invents values.
- * @param {{
- *   reviewRating?: {value?: string | null} | null;
- *   reviewCount?: {value?: string | null} | null;
- * }} product
- * @return {ReviewSummary | null}
- */
-export function parseReviewSummary(product) {
-  const count = Number.parseInt(product?.reviewCount?.value ?? '', 10);
-  if (!Number.isFinite(count) || count <= 0) return null;
-
-  let rating;
-  try {
-    rating = JSON.parse(product?.reviewRating?.value ?? '');
-  } catch {
-    return null;
+  const name = text('name').replace(/\s+/g, ' ');
+  if (!name) errors.name = 'Please enter your name.';
+  else if (name.length > REVIEW_LIMITS.name) {
+    errors.name = `Please use at most ${REVIEW_LIMITS.name} characters.`;
   }
-  const value = Number(rating?.value);
-  const min = Number(rating?.scale_min ?? 1);
-  const max = Number(rating?.scale_max ?? 5);
-  if (![value, min, max].every(Number.isFinite) || max <= min) return null;
-  if (value < min || value > max) return null;
 
-  // Express on a 5-star scale whatever scale the provider uses.
-  const averageRating = Math.round((value / max) * 5 * 10) / 10;
-  return {averageRating, reviewCount: count};
+  const email = text('email').toLowerCase();
+  if (!email) errors.email = 'Please enter your email address.';
+  else if (email.length > REVIEW_LIMITS.email || !EMAIL.test(email)) {
+    errors.email = 'Please enter a valid email address.';
+  }
+
+  const title = text('title').replace(/\s+/g, ' ');
+  if (!title) errors.title = 'Please enter a review title.';
+  else if (title.length > REVIEW_LIMITS.title) {
+    errors.title = `Please use at most ${REVIEW_LIMITS.title} characters.`;
+  }
+
+  const body = text('body');
+  if (!body) errors.body = 'Please write your review.';
+  else if (body.length > REVIEW_LIMITS.text) {
+    errors.body = `Please use at most ${REVIEW_LIMITS.text} characters.`;
+  }
+
+  const productId = text('productId');
+  const productHandle = text('productHandle');
+  const submissionId = text('submissionId');
+  if (
+    !PRODUCT_GID.test(productId) ||
+    !/^[\p{L}\p{N}][\p{L}\p{N}_-]{0,254}$/u.test(productHandle) ||
+    !SUBMISSION_ID.test(submissionId)
+  ) {
+    errors.form = 'This review could not be submitted. Please reload the page.';
+  }
+
+  if (Object.keys(errors).length) return {ok: false, errors};
+  return {
+    ok: true,
+    value: {
+      rating,
+      name,
+      email,
+      title,
+      body,
+      productId,
+      productHandle,
+      submissionId: submissionId.toLowerCase(),
+    },
+  };
 }
 
 /**
- * "Rated 4.7 out of 5 based on 128 reviews"
+ * "Rated 4.7 out of 5 based on 18 reviews"
  * @param {ReviewSummary} summary
  */
 export function describeRating({averageRating, reviewCount}) {
@@ -78,29 +109,43 @@ export function describeRating({averageRating, reviewCount}) {
   }`;
 }
 
-/** @typedef {{averageRating: number; reviewCount: number}} ReviewSummary */
 /**
- * One review as supplied by a provider. Optional fields are shown only when
- * the provider supplies them.
  * @typedef {{
- *   id: string;
- *   rating: number;
- *   author?: string | null;
- *   title?: string | null;
- *   body?: string | null;
- *   createdAt?: string | null;
- *   verifiedBuyer?: boolean | null;
- *   images?: Array<{url: string; altText?: string | null}> | null;
- * }} Review
+ *   averageRating: number;
+ *   reviewCount: number;
+ *   distribution: Record<1 | 2 | 3 | 4 | 5, number>;
+ * }} ReviewSummary
  */
 /**
- * A page of reviews from a provider.
+ * What the browser receives for one approved review. Never contains the
+ * customer email.
  * @typedef {{
- *   reviews: Review[];
+ *   id: string;
+ *   customerName: string;
+ *   rating: number;
+ *   reviewTitle: string;
+ *   reviewText: string;
+ *   verifiedBuyer: boolean;
+ *   createdAt: string | null;
+ * }} PublicReview
+ */
+/**
+ * @typedef {{
+ *   reviews: PublicReview[];
  *   page: number;
  *   hasNextPage: boolean;
  *   sort: string;
- *   sorts: string[];
- *   distribution?: Record<1 | 2 | 3 | 4 | 5, number> | null;
  * }} ReviewPage
+ */
+/**
+ * @typedef {{
+ *   rating: number;
+ *   name: string;
+ *   email: string;
+ *   title: string;
+ *   body: string;
+ *   productId: string;
+ *   productHandle: string;
+ *   submissionId: string;
+ * }} ReviewSubmission
  */

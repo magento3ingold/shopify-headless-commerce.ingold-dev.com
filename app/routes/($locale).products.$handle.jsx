@@ -11,13 +11,13 @@ import {
 import {ProductPrice} from '~/components/ProductPrice';
 import {ProductGallery} from '~/components/ProductGallery';
 import {ProductForm} from '~/components/ProductForm';
-import {ProductReviews, ReviewSummaryLink} from '~/components/ProductReviews';
-import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 import {
-  PRODUCT_REVIEW_SUMMARY_FRAGMENT,
-  parseReviewSummary,
-} from '~/lib/reviews';
-import {loadProductReviews} from '~/lib/reviews.server';
+  ProductReviews,
+  ReviewSummaryLink,
+  ReviewSummaryPlaceholder,
+} from '~/components/ProductReviews';
+import {redirectIfHandleIsLocalized} from '~/lib/redirect';
+import {loadProductReviews} from '~/lib/product-reviews.server';
 
 /**
  * @type {Route.MetaFunction}
@@ -45,14 +45,10 @@ export async function loader(args) {
   return {
     ...deferredData,
     ...criticalData,
-    // Individual reviews come from a review provider (if one is set up) and
-    // stream in below the fold without blocking the page.
-    reviews: loadProductReviews({
-      env: args.context.env,
-      product: {
-        id: criticalData.product.id,
-        handle: criticalData.product.handle,
-      },
+    // Approved "Custom Product Review" metaobjects, read on the server via
+    // the Admin API. Streams in without blocking the page; never throws.
+    reviews: loadProductReviews(args.context, {
+      productId: criticalData.product.id,
     }),
   };
 }
@@ -86,7 +82,6 @@ async function loadCriticalData({context, params, request}) {
 
   return {
     product,
-    reviewSummary: parseReviewSummary(product),
   };
 }
 
@@ -105,7 +100,7 @@ function loadDeferredData({context, params}) {
 
 export default function Product() {
   /** @type {LoaderReturnData} */
-  const {product, reviewSummary, reviews} = useLoaderData();
+  const {product, reviews} = useLoaderData();
 
   // Optimistically selects a variant with given available variant information
   const selectedVariant = useOptimisticVariant(
@@ -141,7 +136,11 @@ export default function Product() {
             <h1 className="font-display text-3xl leading-tight font-medium text-ink md:text-4xl">
               {title}
             </h1>
-            <ReviewSummaryLink summary={reviewSummary} />
+            <Suspense fallback={<ReviewSummaryPlaceholder />}>
+              <Await resolve={reviews} errorElement={null}>
+                {(result) => <ReviewSummaryLink result={result} />}
+              </Await>
+            </Suspense>
             <div className="mt-4 text-lg">
               <ProductPrice
                 price={selectedVariant?.price}
@@ -171,22 +170,18 @@ export default function Product() {
 
         <div className="mt-16 md:mt-24">
           <Suspense
-            fallback={
-              <ProductReviews
-                productHandle={product.handle}
-                summary={reviewSummary}
-                initialPage={null}
-              />
-            }
+            fallback={<ProductReviews product={product} result={null} />}
           >
-            <Await resolve={reviews} errorElement={null}>
-              {(page) => (
+            <Await
+              resolve={reviews}
+              errorElement={
                 <ProductReviews
-                  productHandle={product.handle}
-                  summary={reviewSummary}
-                  initialPage={page}
+                  product={product}
+                  result={{status: 'unavailable', reason: 'ERROR'}}
                 />
-              )}
+              }
+            >
+              {(result) => <ProductReviews product={product} result={result} />}
             </Await>
           </Suspense>
         </div>
@@ -298,10 +293,8 @@ const PRODUCT_FRAGMENT = `#graphql
         }
       }
     }
-    ...ProductReviewSummary
   }
   ${PRODUCT_VARIANT_FRAGMENT}
-  ${PRODUCT_REVIEW_SUMMARY_FRAGMENT}
 `;
 
 const PRODUCT_QUERY = `#graphql

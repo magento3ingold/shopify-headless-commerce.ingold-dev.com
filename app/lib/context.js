@@ -1,4 +1,4 @@
-import {createHydrogenContext} from '@shopify/hydrogen';
+import {createHydrogenContext, createWithCache} from '@shopify/hydrogen';
 import {AppSession} from '~/lib/session';
 import {CART_QUERY_FRAGMENT} from '~/lib/fragments';
 import {getLocaleFromRequest} from '~/lib/i18n';
@@ -50,7 +50,12 @@ export async function createHydrogenRouterContext(
         queryFragment: CART_QUERY_FRAGMENT,
       },
     },
-    additionalContext,
+    {
+      ...additionalContext,
+      // Caches non-Storefront API calls (e.g. Admin API reads of public
+      // review data) in the same cache.
+      withCache: createWithCache({cache, waitUntil, request}),
+    },
   );
 
   return hydrogenContext;
